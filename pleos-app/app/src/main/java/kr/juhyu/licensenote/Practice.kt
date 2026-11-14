@@ -67,6 +67,7 @@ data class PracticeSession(
     val practiceTargets: List<String> = emptyList(),
     val previousSessionId: String? = null,
     val previousTargetStatuses: Map<String, String> = emptyMap(),
+    val nativeDestination: NativeDestination? = null,
 )
 data class Assessment(val status: String, val score: Int?, val checked: Int, val mistake: Boolean, val title: String, val reason: String)
 
@@ -248,7 +249,8 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
         // A final snapshot belongs to the actual end, even if the last periodic tick just ran.
         lastTick = now - 1000
         tick(signals, now)
-        session = session.copy(endedAtMs = now, phase = SessionPhase.REVIEW)
+        val phase = if (session.nativeDestination != null) SessionPhase.COMPLETE else SessionPhase.REVIEW
+        session = session.copy(endedAtMs = now, phase = phase)
         return true
     }
 
@@ -275,6 +277,9 @@ object PracticeEvaluator {
             values.all { it.quality == "VALID" && predicate(it.value) } && values.zipWithNext().all { (a, b) -> b.atMs - a.atMs <= 2500 }
     }
     fun evaluate(s: PracticeSession): Assessment {
+        if (s.nativeDestination != null) return if (s.interrupted || s.safetyIssue)
+            Assessment("HELD", null, 0, false, "중단한 목적지 연습", "중단이나 안전 문제로 여기까지의 차량 기록을 보관했어요.")
+        else Assessment("DESTINATION_PRACTICE", null, 0, false, "목적지까지 연습 기록", "기본 내비가 안내한 목적지와 차량 기록을 보관했어요.")
         if (s.rulesVersion >= 2) return evaluateTurns(s)
         fun held(reason: String) = Assessment("HELD", null, 0, false, "이번 점수는 보류했어요", reason)
         if (s.interrupted || s.safetyIssue) return held("중단이나 안전 문제가 있어, 여기까지의 기록만 남겼어요.")

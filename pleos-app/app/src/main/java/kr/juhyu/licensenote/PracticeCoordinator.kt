@@ -37,6 +37,9 @@ data class PracticeUi(
     val courseRequest: String = "",
     val destinationQuery: String = "",
     val submittedRequest: String? = null,
+    val searchStarted: Long = 0,
+    val searchResult: NativeDestination? = null,
+    val chosenNative: NativeDestination? = null,
 )
 class PracticeCoordinator(private val context: Context, private val signals: () -> Map<String, Signal>, private val publishSignals: () -> Unit) {
     private val stateThread = HandlerThread("PracticeState").apply { start() }
@@ -55,6 +58,29 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         if (Looper.myLooper() == main.looper) action() else main.post { action() }
     }
     fun go(page: Page) = dispatch { doGo(page) }
+    fun searchNativeDestination() = dispatch {
+        val current = state.value
+        val now = SystemClock.elapsedRealtime()
+        val keyword = current.destinationQuery.trim()
+        if (current.page != Page.COURSE || current.courseStep != CourseStep.DESTINATION ||
+            keyword.isEmpty() || !canReview(signals(), now)) return@dispatch
+        state.value = current.copy(searchStarted = now, searchResult = null, chosenNative = null, error = null)
+        runCatching {
+            context.startService(Intent(context, TelemetryService::class.java).setAction("SEARCH_DESTINATION").putExtra("query", keyword))
+        }.onFailure { state.value = state.value.copy(searchStarted = 0, error = "기본 내비 검색을 열지 못했어요.") }
+    }
+    fun cancelNativeSearch() = dispatch {
+        if (state.value.searchStarted > 0) context.startService(Intent(context, TelemetryService::class.java).setAction("CANCEL_SEARCH"))
+        state.value = state.value.copy(searchStarted = 0, searchResult = null, chosenNative = null, error = null)
+    }
+    fun previewNativeDestination() = dispatch {
+        val current = state.value
+        val now = SystemClock.elapsedRealtime()
+        if (current.page != Page.COURSE || current.courseStep != CourseStep.DESTINATION || !canReview(signals(), now)) return@dispatch
+        val destination = selectedNativeDestination(signals(), current.searchStarted, now) ?: return@dispatch
+        state.value = current.copy(selectedRouteId = destination.route().id, previewOrigin = CourseStep.DESTINATION,
+            courseStep = CourseStep.PREVIEW, chosenNative = destination, error = null)
+    }
     fun previousPractices(currentId: String, offset: Int, done: (Result<List<PreviousPractice>>) -> Unit) {
         io.execute {
             val result = runCatching { store.previous(currentId, offset) }
@@ -69,7 +95,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     fun courseInput(text: String, destination: Boolean) = dispatch {
         val current = state.value
         if (current.page != Page.COURSE || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
-        state.value = if (destination) current.copy(destinationQuery = text.take(300)) else current.copy(courseRequest = text.take(300), submittedRequest = null)
+        state.value = if (destination) current.copy(destinationQuery = text.take(160), searchStarted = 0, searchResult = null, chosenNative = null) else current.copy(courseRequest = text.take(300), submittedRequest = null)
     }
     fun submitCourseRequest(text: String) = dispatch {
         val current = state.value
@@ -79,7 +105,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     fun previewCourse(route: PracticeRoute) = dispatch {
         val current = state.value
         if (current.page == Page.COURSE && CourseCatalog.find(route.id) != null && canReview(signals(), SystemClock.elapsedRealtime()))
-            state.value = current.copy(selectedRouteId = route.id, previewOrigin = current.courseStep, courseStep = CourseStep.PREVIEW, error = null)
+            state.value = current.copy(selectedRouteId = route.id, previewOrigin = current.courseStep, courseStep = CourseStep.PREVIEW, chosenNative = null, searchStarted = 0, searchResult = null, error = null)
     }
     fun openGuide() = dispatch {
         val current = state.value
@@ -163,6 +189,14 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         override fun run() {
             val now = SystemClock.elapsedRealtime()
             publishSignals()
+            val search = state.value
+            if (search.searchStarted > 0 && search.page == Page.COURSE && search.courseStep in setOf(CourseStep.DESTINATION, CourseStep.PREVIEW)) {
+                val failure = signals()["navigation_screen"]?.takeIf { it.receivedMs >= search.searchStarted && (it.quality == "ERROR" || it.value == "SCREEN_BLOCKED_WHILE_MOVING") }
+                if (now - search.searchStarted > 600_000 || failure != null) {
+                    state.value = search.copy(courseStep = CourseStep.DESTINATION, chosenNative = null, searchStarted = 0, searchResult = null,
+                        error = if (failure != null) "기본 내비 검색을 열 수 없어요. 주차 후 다시 시도해 주세요." else "목적지 확인 시간이 지났어요. 다시 검색해 주세요.")
+                } else state.value = search.copy(searchResult = selectedNativeDestination(signals(), search.searchStarted, now))
+            }
             closeRestrictedGuideTopic(now)
             val e = engine
             if (e?.session?.phase == SessionPhase.RECORDING) {
@@ -184,7 +218,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     private fun doAcceptIntro() { preferences.edit().putBoolean("introSeen", true).putString("driverType", "learner").apply(); go(Page.BELT) }
     private fun doAcceptLicensed() { preferences.edit().putBoolean("introSeen", true).putString("driverType", "licensed").apply(); go(Page.BELT) }
     private fun doConfirmBelt(manual: Boolean) { state.value = state.value.copy(manualBelt = manual); go(Page.MIRROR) }
-    private fun doConfirmDoors(manual: Boolean) { state.value = state.value.copy(manualDoor = manual, preflightConfirmed = true, courseStep = CourseStep.LIST, courseRequest = "", submittedRequest = null, destinationQuery = ""); go(Page.COURSE) }
+    private fun doConfirmDoors(manual: Boolean) { state.value = state.value.copy(manualDoor = manual, preflightConfirmed = true, courseStep = CourseStep.LIST, courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null); go(Page.COURSE) }
     private fun doOnSignal(key: String, signal: Signal, previous: Signal?) {
         if (key == "speed" || key == "gear" || key == "ux") closeRestrictedGuideTopic(SystemClock.elapsedRealtime())
         val e = engine ?: return
@@ -240,16 +274,22 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         val previousEngine = engine
         val previous = previousEngine?.session
         if (state.value.page != Page.COURSE || state.value.courseStep != CourseStep.PREVIEW) return
-        val route = CourseCatalog.find(state.value.selectedRouteId) ?: return
+        val chosen = state.value.chosenNative
+        val active = chosen?.let { selectedNativeDestination(data, state.value.searchStarted, now) }
+        if (chosen != null && (active == null || !chosen.samePlace(active))) {
+            state.value = state.value.copy(courseStep = CourseStep.DESTINATION, chosenNative = null, error = "기본 내비 목적지가 변경되었거나 확인되지 않았어요. 다시 선택해 주세요.")
+            return
+        }
+        val route = active?.route() ?: CourseCatalog.find(state.value.selectedRouteId) ?: return
         val targets = previous?.takeIf { it.rulesVersion >= 2 }?.let(PracticeEvaluator::turnAssessments).orEmpty()
             .filter { it.mistake }.map { it.event.id.substringAfterLast(':') }.filter { id -> route.turns.any { it.id == id } }
         val statuses = previous?.let(PracticeEvaluator::turnAssessments).orEmpty().filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
         engine = PracticeEngine(PracticeSession(courseId = route.id, courseVersion = route.version, rulesVersion = route.rulesVersion, startedAtMs = now, startedWallMs = System.currentTimeMillis(), manualDoor = state.value.manualDoor, manualBelt = state.value.manualBelt, expectedDoors = doors, dataGap = !turnReady,
             evidenceGaps = if (turnReady) emptyList() else listOf(EvidenceGap(now, now)),
-            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses))
+            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active))
         engine!!.tick(data, now)
         try {
-            ContextCompat.startForegroundService(context, Intent(context, TelemetryService::class.java).setAction("RECORD").putExtra("prepareCourseRoute", true).putExtra("courseId", route.id))
+            ContextCompat.startForegroundService(context, Intent(context, TelemetryService::class.java).setAction("RECORD").putExtra("prepareCourseRoute", active == null).putExtra("courseId", route.id))
             state.value = state.value.copy(page = Page.DRIVING, session = engine!!.session, assessment = null, error = null, preflightConfirmed = false, manualBelt = false, manualDoor = false)
             persist(engine!!.session)
         } catch (error: Exception) {

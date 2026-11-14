@@ -99,6 +99,7 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
             practiceTargets = data.optJSONArray("practiceTargets")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             previousSessionId = if (data.isNull("previousSessionId")) null else data.getString("previousSessionId"),
             previousTargetStatuses = data.optJSONObject("previousTargetStatuses")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } } ?: emptyMap(),
+            nativeDestination = data.optJSONObject("nativeDestination")?.let(NativeDestination::parse),
         )
     }
     fun metadata(s: PracticeSession): JSONObject = JSONObject().put("schemaVersion", 1).put("id", s.id).put("courseId", s.courseId).put("courseVersion", s.courseVersion).put("rulesVersion", s.rulesVersion)
@@ -114,4 +115,5 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
             .put("observation", t.observation.name).put("evidenceReason", t.evidenceReason ?: JSONObject.NULL).put("evidenceStatus", t.evidenceStatus) }))
         .put("practiceTargets", JSONArray(s.practiceTargets)).put("previousSessionId", s.previousSessionId ?: JSONObject.NULL)
         .put("previousTargetStatuses", JSONObject(s.previousTargetStatuses))
+        .put("nativeDestination", s.nativeDestination?.json() ?: JSONObject.NULL)
 }

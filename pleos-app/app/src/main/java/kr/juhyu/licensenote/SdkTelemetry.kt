@@ -274,6 +274,10 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             navigationRouteActive = false
             send("navigation_request", "ARRIVED", "NaviHelper/3.0.5", "CALLBACK")
         }
+        override fun onDestinationChanged() = onNavigation {
+            send("navigation_destination_changed", "CHANGED", "NaviHelper/3.0.5", "CALLBACK")
+            queryNavigation()
+        }
         override fun onCurrentLocationInfo(currentLocationInfo: CurrentLocationInfo) = onNavigation {
             send("navigation_location", "${currentLocationInfo.latitude},${currentLocationInfo.longitude},${currentLocationInfo.heading},${currentLocationInfo.address}", "NaviHelper/3.0.5", "CALLBACK")
         }
@@ -397,6 +401,19 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         if (navigationConnected) openConnectedNavigation() else initializeNavigation()
     }
 
+    fun cancelDestinationSearch() = onNavigation {
+        if (pendingNavigationScreen is NavigationScreenRequest.SearchPlace) {
+            pendingNavigationOpen = null
+            pendingNavigationScreen = NavigationScreenRequest.Foreground
+        }
+    }
+    fun searchDestination(keyword: String) = onNavigation {
+        if (keyword.isBlank()) return@onNavigation
+        pendingNavigationScreen = NavigationScreenRequest.SearchPlace(keyword.trim().take(160))
+        pendingNavigationOpen = false
+        send("navigation_screen", "SEARCH_CONNECTING", "NaviHelper/3.0.5", "REQUEST")
+        if (navigationConnected) openConnectedNavigation() else initializeNavigation()
+    }
     fun openNavigationSettings() = onNavigation {
         pendingNavigationScreen = NavigationScreenRequest.Settings
         pendingNavigationOpen = false
@@ -434,17 +451,22 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         val screen = pendingNavigationScreen
         pendingNavigationOpen = null
         pendingNavigationScreen = NavigationScreenRequest.Foreground
-        if (screen == NavigationScreenRequest.Settings) {
+        if (screen == NavigationScreenRequest.Settings || screen is NavigationScreenRequest.SearchPlace) {
             val signals = (context.applicationContext as? LicenseApp)?.signals?.value.orEmpty()
             if (!canReview(signals, SystemClock.elapsedRealtime())) {
-                send("navigation_screen", "SETTINGS_BLOCKED_WHILE_MOVING", "NaviHelper/3.0.5", "REQUEST")
+                send("navigation_screen", "SCREEN_BLOCKED_WHILE_MOVING", "NaviHelper/3.0.5", "REQUEST")
                 return
             }
         } else if (screen == NavigationScreenRequest.Foreground) navigationOpenedAt = SystemClock.elapsedRealtime()
         // SDK foreground requests are recorded separately from Android launch requests and actual rendering.
         runCatching {
             navigation.requestNavigationScreen(screen)
-            send("navigation_screen", if (screen == NavigationScreenRequest.Settings) "SDK_SETTINGS_REQUESTED" else "SDK_FOREGROUND_REQUESTED", "NaviHelper/3.0.5", "REQUEST")
+            val requested = when (screen) {
+                NavigationScreenRequest.Settings -> "SDK_SETTINGS_REQUESTED"
+                is NavigationScreenRequest.SearchPlace -> "SDK_SEARCH_REQUESTED"
+                else -> "SDK_FOREGROUND_REQUESTED"
+            }
+            send("navigation_screen", requested, "NaviHelper/3.0.5", "REQUEST")
         }.onFailure { fail("navigation_screen", Exception(it)) }
         if (screen == NavigationScreenRequest.Settings) { queryNavigation(); return }
         if (screen == NavigationScreenRequest.Foreground) runCatching {

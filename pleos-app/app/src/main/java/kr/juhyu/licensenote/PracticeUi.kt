@@ -249,6 +249,18 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         return
     }
     val p = LocalPalette.current
+    ui.chosenNative?.let { dest ->
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            Copy("기본 내비에서 선택했어요", 32, p.second)
+            Copy(dest.name, if (wide) 72 else 56, weight = FontWeight.SemiBold)
+            Copy("남은 거리 ${dest.meters} m", 40, p.blue)
+            Copy("현재 기본 내비가 정한 경로로 운전해요. 연습 구간·차로 수·도로 종류는 평가하지 않아요.", 30, p.second)
+            Spacer(Modifier.weight(1f))
+            Action("이 목적지로 연습 시작", enabled = !ui.saving && ui.searchResult?.let(dest::samePlace) == true, modifier = Modifier.fillMaxWidth(), onClick = c::start)
+            Link("다른 목적지 고르기", modifier = Modifier.fillMaxWidth(), onClick = c::back)
+        }
+        return
+    }
     val route = CourseCatalog.find(ui.selectedRouteId) ?: return
     val recommendation = remember(ui.session, route.id) { CourseCatalog.recommendation(ui.session) }
     Column(Modifier.fillMaxSize()) {
@@ -278,6 +290,19 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
 @Composable private fun DrivingScreen(ui: PracticeUi, signals: Map<String, Signal>, wide: Boolean, parked: Boolean, c: PracticeCoordinator) {
     val s = ui.session ?: return
     val p = LocalPalette.current
+    s.nativeDestination?.let { destination ->
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Copy("기본 내비 안내", 29, p.blue)
+            Copy(destination.name, if (wide) 56 else 44, weight = FontWeight.SemiBold)
+            Copy("길과 방향은 기본 내비에서 확인하세요.", 28, p.second)
+            DriveMotionMeter(signals["speed"])
+            DriveHelp(s, parked, signals, ui.now)
+            Spacer(Modifier.weight(1f))
+            Link("기본 내비 열기", onClick = c::openNavigation)
+            if (parked) Action("기록 종료", enabled = !ui.saving, modifier = Modifier.fillMaxWidth(), onClick = c::finish)
+        }
+        return
+    }
     val instruction = driveCue(s, signals, ui.now)
     val navigation = signals["navigation_request"]?.takeIf { it.receivedMs >= s.startedAtMs }
     val elapsed = ((ui.now - s.startedAtMs) / 1000).coerceAtLeast(0)
@@ -406,6 +431,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             }
         } else {
             val title = when {
+                s?.nativeDestination != null -> a?.title ?: "목적지 연습 기록"
                 s?.interrupted == true -> "기록이 중간에 끊겼어요"
                 s?.safetyIssue == true -> "안전 문제로 평가를 보류했어요"
                 comparisons.isNotEmpty() -> "다시 연습한 구간"
@@ -415,7 +441,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                 else -> "구간별 깜빡이 기록"
             }
             Copy(title, if (wide) 60 else 46, p.navy, FontWeight.SemiBold)
-            Copy("회전 ${a?.checked ?: 0}곳의 방향지시등을 확인했어요. 이 연습은 숫자 점수를 보류해요.", 26, p.second)
+            Copy(if (s?.nativeDestination != null) "기본 내비가 안내한 연습이에요. 차량 기록을 확인하세요." else "회전 ${a?.checked ?: 0}곳의 방향지시등을 확인했어요. 이 연습은 숫자 점수를 보류해요.", 26, p.second)
             if (a?.title == "안전벨트 미착용 기록") Copy("주행 중 운전석 벨트 미착용 신호가 있었어요.", 28, p.second)
             comparisons.forEach { item ->
                 Spacer(Modifier.height(18.dp))
@@ -491,7 +517,10 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 24.dp)) {
             Copy(if (a?.mistake == true) if (legacy) "차로 변경 전 깜빡이" else "회전 전 깜빡이" else "이번 연습 기록", if (wide) 66 else 52, weight = FontWeight.SemiBold)
-            if (legacy) {
+            if (s?.nativeDestination != null) {
+                Spacer(Modifier.height(22.dp))
+                EvidenceCard(s.nativeDestination.name, "기본 내비에서 선택한 목적지예요. 이 연습은 주행 기록만 남겨요.")
+            } else if (legacy) {
                 Spacer(Modifier.height(28.dp))
                 EvidenceCard("차로 변경 기록", a?.reason.orEmpty())
             } else s?.practiceRoute?.turns.orEmpty().forEach { course ->

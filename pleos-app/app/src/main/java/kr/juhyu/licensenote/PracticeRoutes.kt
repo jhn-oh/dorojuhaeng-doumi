@@ -73,7 +73,7 @@ object CourseCatalog {
 }
 
 // Old lane-change reports were stored under the default turn-course ID.
-val PracticeSession.practiceRoute get() = if (rulesVersion == 1) CourseCatalog.lane else CourseCatalog.find(courseId) ?: CourseCatalog.full
+val PracticeSession.practiceRoute get() = nativeDestination?.route() ?: if (rulesVersion == 1) CourseCatalog.lane else CourseCatalog.find(courseId) ?: CourseCatalog.full
 
 data class CourseMatch(val routes: List<PracticeRoute> = emptyList(), val message: String = "")
 

@@ -62,12 +62,18 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
             Action("목적지 지정", secondary = !destination, modifier = Modifier.weight(1f)) { c.courseStep(CourseStep.DESTINATION) }
         }
         if (destination) {
-            Copy("등록된 연습 도착점을 고르세요.", 32, p.second)
+            Copy("장소나 주소를 입력하세요.", 32, p.second)
             OutlinedTextField(value = ui.destinationQuery, onValueChange = { c.courseInput(it, true) }, singleLine = true,
                 label = { Copy("목적지 검색", 26) }, modifier = Modifier.fillMaxWidth())
             val query = ui.destinationQuery.trim()
+            if (ui.searchStarted > 0) {
+                val found = ui.searchResult
+                if (found != null) CourseCard("기본 내비에서 선택한 목적지", found.name, Modifier.fillMaxWidth(), true, c::previewNativeDestination)
+                else Copy("기본 내비에서 장소를 고르고 안내를 시작한 뒤, 이 앱으로 돌아오세요.", 28, p.second)
+                Link("검색 취소", modifier = Modifier.fillMaxWidth(), onClick = c::cancelNativeSearch)
+            } else if (query.isNotEmpty()) Action("기본 내비에서 검색", modifier = Modifier.fillMaxWidth(), onClick = c::searchNativeDestination)
             val destinations = CourseCatalog.destinations(query)
-            if (destinations.isEmpty()) Copy("일치하는 등록 목적지가 없어요. 다른 이름으로 찾아보세요.", 28, p.second)
+            if (destinations.isNotEmpty()) Copy("등록된 연습 경로", 28, p.second)
             destinations.forEach { route ->
                 CourseCard(route.destination, "${route.departure} 출발 · ${route.stats}", Modifier.fillMaxWidth(), route.id == ui.selectedRouteId) { c.previewCourse(route) }
             }

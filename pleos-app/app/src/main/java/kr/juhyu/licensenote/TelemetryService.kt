@@ -22,6 +22,8 @@ class TelemetryService : Service() {
         if (BuildConfig.DEBUG) Log.i("LicenseService", "created; SDK connected to Activity/service lifetime")
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "SEARCH_DESTINATION") sdk.searchDestination(intent.getStringExtra("query").orEmpty())
+        if (intent?.action == "CANCEL_SEARCH") sdk.cancelDestinationSearch()
         if (BuildConfig.DEBUG && intent?.action == "PROBE_NAVIGATION") sdk.probeNavigation()
         if (intent?.action == "OPEN_NAVIGATION") sdk.openNavigation(intent.getBooleanExtra("withCourseRoute", false))
         if (BuildConfig.DEBUG && intent?.action == "OPEN_NAVIGATION_SETTINGS") sdk.openNavigationSettings()

@@ -16,6 +16,7 @@ internal fun reportText(s: PracticeSession): String {
         appendLine("도로주행 도우미 · " + s.practiceRoute.name)
         if (duration != null) appendLine("연습 시간 " + duration / 60 + "분 " + duration % 60 + "초")
         if (score != null) appendLine("연습 점수 ${score}점 · 46개 감점 항목 중 ${assessment.checked}개 확인")
+        else if (s.nativeDestination != null) appendLine("기본 내비 목적지 연습 · 주행 기록")
         else if (s.rulesVersion >= 2) appendLine("확인한 회전 ${assessment.checked}곳 · 숫자 점수 보류")
         else appendLine(assessment.title.replace("\n", " "))
         appendLine("공식 도로주행시험 점수가 아니에요.")
