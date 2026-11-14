@@ -144,6 +144,7 @@ private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Lo
         motion.animateTo(1f, tween(1800, easing = LinearEasing))
     }
     val steps = remember(topic, alternate) { topic.steps(alternate) }
+    if (topic == GuideTopic.SPEED) SpeakParkedInstruction(instrumentInstruction(step), replay)
     val source = when (topic) {
         GuideTopic.BELT -> "내 차 · 운전석 경고 · " + guideWarning(signals[GUIDE_BELT_WARNING], now).label +
             "\n운전석 버클 · " + guideBuckleLabel(signals["belt"], now)

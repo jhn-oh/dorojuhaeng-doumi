@@ -403,7 +403,7 @@ object PracticeEvaluator {
                 val suggested = turns.any { it.practiceSuggested }
                 when {
                     checked == 0 -> Assessment("HELD", null, 0, false, "비교할 구간 기록이 부족해요",
-                        if (turns.isEmpty()) "코스의 위치와 조향이 함께 확인된 회전 구간이 없어요." else "해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.")
+                        if (turns.isEmpty()) "어디서 회전했는지 확인할 수 없어서, 이번에는 깜빡이 사용을 판단하지 않았어요." else "해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.")
                     else -> Assessment("VEHICLE_RECORDED", null, checked, false,
                         if (suggested) "다시 연습할 깜빡이" else "구간별 깜빡이 기록",
                         "위치·조향으로 추정한 회전 ${checked}곳", practiceSuggested = suggested)

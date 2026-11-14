@@ -5,13 +5,23 @@ import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -92,21 +102,25 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
     }
 }
 
-@Composable internal fun DriveHelp(session: PracticeSession, parked: Boolean, signals: Map<String, Signal>, now: Long) {
+@Composable internal fun DriveHelp(session: PracticeSession, parked: Boolean, signals: Map<String, Signal>, now: Long,
+                                   drivingActions: @Composable RowScope.() -> Unit) {
     val context = LocalContext.current
     val voice = voiceControls()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var shown by rememberSaveable(session.id) { mutableStateOf("") }
+    var readingAnswer by remember(session.id) { mutableStateOf(false) }
     val sessionId = session.id
     val ux = signals["ux"]
     val canUseVoice = ux?.quality == "VALID" && ux.value?.substringAfter(',')?.toIntOrNull()?.let {
         it and android.car.drivingstate.CarUxRestrictions.UX_RESTRICTIONS_NO_VOICE_TRANSCRIPTION == 0
     } == true
     LaunchedEffect(canUseVoice) { if (!canUseVoice) voice.client.stop() }
+    LaunchedEffect(voice.busy) { if (!voice.busy) readingAnswer = false }
     fun answer(text: String) {
         val found = GuideAnswers.find(text)
         saveQuestion(context, sessionId, text, found)
         shown = found?.text ?: unmatched
+        readingAnswer = true
         voice.client.speak(shown, SystemClock.elapsedRealtime() + 4_000)
     }
     val active = session.turns.lastOrNull()?.takeIf { it.exitMs == null && now - it.entryMs in 0L..3000L }
@@ -127,38 +141,73 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
             }
         }
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (!canUseVoice) {
-            Copy("차량 음성 입력 제한", 23, LocalPalette.current.muted)
-            return@Column
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            VoiceButton(if (voice.busy) "음성 중지" else "도움AI 질문") {
-                if (voice.busy) {
-                    voice.client.stop()
-                } else {
-                    shown = ""
-                    voice.client.listen(::answer)
+    SpokenDriveCue(session, parked, signals, now, canUseVoice, voice.client)
+    val p = LocalPalette.current
+    val stop = voice.busy && (voice.client.listening || readingAnswer)
+    val feedback = when {
+        !canUseVoice -> "차량 음성 입력 제한"
+        readingAnswer && parked && shown.isNotBlank() -> shown
+        voice.feedback.isNotBlank() -> voice.feedback
+        parked || shown == coaching || shown.length <= 24 -> shown
+        else -> "지난 질문은 주차 후 확인하세요."
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (feedback.isNotEmpty() || (canUseVoice && parked && !voice.busy)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    if (feedback.isNotEmpty()) Copy(feedback, 23, p.second, modifier = Modifier.semantics {
+                        liveRegion = LiveRegionMode.Polite
+                    })
                 }
-            }
-            if (parked && !voice.busy) TextButton(onClick = {
-                shown = "“도움AI”라고 부른 뒤 질문하세요."
-                voice.client.listen { input ->
-                    val question = wakeQuestion(input)
-                    when {
-                        question == null -> shown = "호출어를 듣지 못했어요."
-                        question.isBlank() -> { shown = "질문해 주세요."; voice.client.listen(::answer) }
-                        else -> answer(question)
+                if (canUseVoice && parked && !voice.busy) TextButton(onClick = {
+                    shown = "“도움AI”라고 부른 뒤 질문하세요."
+                    voice.client.listen { input ->
+                        val question = wakeQuestion(input)
+                        when {
+                            question == null -> shown = "호출어를 듣지 못했어요."
+                            question.isBlank() -> { shown = "질문해 주세요."; voice.client.listen(::answer) }
+                            else -> answer(question)
+                        }
                     }
+                }) {
+                    Copy("호출어 듣기", 22, p.blue)
                 }
-            }) {
-                Copy("호출어 듣기", 22, LocalPalette.current.blue)
             }
         }
-        if (voice.feedback.isNotBlank()) Copy(voice.feedback, 22, LocalPalette.current.second)
-        if (shown.isNotBlank()) {
-            val inline = if (parked || shown == coaching || shown.length <= 24) shown else "지난 질문은 주차 후 확인하세요."
-            Copy(inline, 23, LocalPalette.current.second)
+        // This space stays reserved when parking or changing the app window width.
+        val fabWidth = (98 + 114 * LocalAppTextScale.current).dp
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
+            Row(Modifier.fillMaxWidth().padding(end = fabWidth + 18.dp).heightIn(min = 82.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically, content = drivingActions)
+            Surface(
+                onClick = {
+                    if (stop) {
+                        voice.client.stop()
+                        readingAnswer = false
+                        shown = ""
+                    } else {
+                        shown = ""
+                        voice.client.listen(::answer)
+                    }
+                },
+                enabled = canUseVoice,
+                shape = CircleShape,
+                color = if (canUseVoice) p.blue else p.light,
+                contentColor = if (canUseVoice) p.onAction else p.muted,
+                modifier = Modifier.width(fabWidth).testTag("drive-help-fab").semantics { role = Role.Button }
+                    .shadow(if (canUseVoice) 8.dp else 0.dp, CircleShape)
+            ) {
+                Row(Modifier.heightIn(min = 82.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(if (stop) R.drawable.voice_stop else R.drawable.voice_mic),
+                        contentDescription = null, modifier = Modifier.size(32.dp))
+                    Copy(if (stop) "음성 중지" else "도움 AI", 26,
+                        if (canUseVoice) p.onAction else p.muted, FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

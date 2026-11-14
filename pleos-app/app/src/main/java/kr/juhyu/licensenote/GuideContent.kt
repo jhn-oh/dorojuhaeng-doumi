@@ -106,7 +106,7 @@ internal fun GuideTopic.steps(alternate: Boolean) = when (this) {
     GuideTopic.SPEED -> listOf(
         GuideStep("속도계를 찾아요", "계기판에서 km/h 표시를 찾으세요. 지금 차가 얼마나 빠르게 움직이는지 알려주는 곳이에요."),
         GuideStep("단위를 함께 읽어요", "예시 바늘이 0에서 40으로 움직여요. 40 km/h는 시속 40킬로미터라는 뜻이에요."),
-        GuideStep("기어 표시를 구별해요", "D는 전진, P는 주차예요. 속도계가 0이어도 기어는 D일 수 있어요.")
+        GuideStep("기어 표시를 구별해요", "D는 드라이브, P는 파킹이에요. 차가 멈춰 있어도 기어는 드라이브일 수 있어요.")
     )
     GuideTopic.SIGNAL -> listOf(
         GuideStep("깜빡이 레버를 찾아요", "핸들 왼쪽 레버에서 화살표 표시를 찾으세요. 내 차의 조작 위치를 먼저 확인하세요."),

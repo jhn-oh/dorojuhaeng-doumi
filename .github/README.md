@@ -2,9 +2,9 @@
 
 Pleos Connect에서 출발 준비, 코스 선택, 주행 중 안내, 주차 후 복습을 연결하는 Android 앱입니다. 운전석 안전벨트, 도어, 방향지시등, 조향과 위치 신호를 연습 기록에 사용합니다.
 
-**심사용 0.5.2 실행**
+**심사용 0.5.3 실행**
 
-Pleos Connect 시스템 이미지 2.1.0(Android 14, API 34, x86_64), 가로 2560 × 1440 환경에서 확인합니다. 저장소와 소스·APK 압축본의 설치 경로는 `apk/도로주행도우미_release.apk`입니다. [설치 APK](../apk/도로주행도우미_release.apk) · [0.5.2 비공개 릴리스](https://github.com/jhn-oh/dorojuhaeng-doumi/releases/tag/v0.5.2)
+Pleos Connect 시스템 이미지 2.1.0(Android 14, API 34, x86_64), 가로 2560 × 1440 환경에서 확인합니다. 음성을 시연할 때는 에뮬레이터의 오디오 입출력을 켭니다. 저장소와 소스·APK 압축본의 설치 경로는 `apk/도로주행도우미_release.apk`입니다. [설치 APK](../apk/도로주행도우미_release.apk) · [0.5.3 비공개 릴리스](https://github.com/jhn-oh/dorojuhaeng-doumi/releases/tag/v0.5.3)
 
 1. Pleos 에뮬레이터를 부팅하고 대상 기기의 시리얼을 `adb devices`로 확인합니다. 새 시험 기기에 `adb -s <serial> install -g apk/도로주행도우미_release.apk`로 설치합니다. 이전 개발용 디버그 APK는 서명이 다릅니다.
 2. 차량 앱 목록에서 **도로주행 도우미**를 엽니다. 정차·P단에서 첫 안내를 읽고 차량 접근 권한을 허용합니다. 안전벨트 상태는 차량 신호가 들어오는 동안 그대로 반영됩니다.

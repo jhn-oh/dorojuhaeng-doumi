@@ -392,7 +392,7 @@ def show_sdk_navigation():
     try:
         wait_signal("speed", lambda s: abs(float(s["value"])-5.0) < .05)
         wait_signal("gear", lambda s: s["value"] == "8")
-        click("기본 내비 열기")
+        click("내비 열기" if "내비 열기" in visible(probe()) else "기본 내비 열기")
         screen = wait_signal("navigation_screen", lambda s: s["value"] == "SDK_FOREGROUND_REQUESTED" and s["receivedMs"] > screen_at)
         evidence["SDKrequestSent"] = True
         evidence["screenSignal"] = screen

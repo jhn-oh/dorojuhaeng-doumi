@@ -217,6 +217,19 @@ class TurnPracticeTest {
         assertFalse(PracticeEvaluator.evaluate(s.copy(samples = denied)).reason.contains("미착용"))
     }
 
+    @Test fun absentTurnEvidenceIsSpokenInPlainLanguageAndOtherHoldsKeepTheirReason() {
+        val base = automaticReview().copy(turns = emptyList())
+        fun spoken(session: PracticeSession) = parkedInstruction(
+            PracticeUi(page = Page.RESULT, session = session, assessment = PracticeEvaluator.evaluate(session), now = 1L),
+            emptyMap(),
+        )
+        assertEquals("어디서 회전했는지 확인할 수 없어서, 이번에는 깜빡이 사용을 판단하지 않았어요.", spoken(base))
+        assertEquals("안전 문제로 구간 판단을 보류했어요.", spoken(base.copy(safetyIssue = true)))
+        assertEquals("중단 전까지 받은 신호를 저장했어요.", spoken(base.copy(interrupted = true)))
+        val noSignal = automaticReview().copy(samples = emptyList())
+        assertEquals("해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.", spoken(noSignal))
+    }
+
     @Test fun intermediateBadOrRepeatedLocationFixCannotSupportAutomaticFeedback() {
         val s = automaticReview()
         val event = s.turns.first()

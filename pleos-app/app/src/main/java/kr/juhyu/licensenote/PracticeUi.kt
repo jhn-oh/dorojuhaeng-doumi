@@ -112,6 +112,10 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                     var video by remember { mutableStateOf<Int?>(null) }
                     var legal by remember { mutableStateOf(false) }
                     LaunchedEffect(parked) { if (!parked) { video = null; legal = false } }
+                    key(ui.page, ui.session?.id) {
+                        SpeakParkedInstruction(if (parked && !ui.loading && video == null && !legal)
+                            parkedInstruction(ui, signals) else null)
+                    }
                     Column(Modifier.fillMaxSize().padding(horizontal = if (wide) 92.dp else 56.dp).padding(top = 44.dp, bottom = 34.dp)) {
                         Header(ui, c, parked, onLegal = { legal = true })
                         Spacer(Modifier.height(36.dp))
@@ -312,19 +316,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
 @Composable private fun DrivingScreen(ui: PracticeUi, signals: Map<String, Signal>, wide: Boolean, parked: Boolean, c: PracticeCoordinator) {
     val s = ui.session ?: return
     val p = LocalPalette.current
-    s.nativeDestination?.let { destination ->
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Copy("기본 내비 안내", 29, p.blue)
-            Copy(destination.name, if (wide) 56 else 44, weight = FontWeight.SemiBold)
-            Copy("길과 방향은 기본 내비에서 확인하세요.", 28, p.second)
-            DriveMotionMeter(signals["speed"])
-            DriveHelp(s, parked, signals, ui.now)
-            Spacer(Modifier.weight(1f))
-            Link("기본 내비 열기", onClick = c::openNavigation)
-            if (parked) Action("기록 종료", enabled = !ui.saving, modifier = Modifier.fillMaxWidth(), onClick = c::finish)
-        }
-        return
-    }
+    val destination = s.nativeDestination
     val instruction = driveCue(s, signals, ui.now)
     val navigation = signals["navigation_request"]?.takeIf { it.receivedMs >= s.startedAtMs }
     val elapsed = ((ui.now - s.startedAtMs) / 1000).coerceAtLeast(0)
@@ -336,14 +328,21 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     }
     val tools: @Composable () -> Unit = {
         DriveMotionMeter(signals["speed"])
-        DriveHelp(s, parked, signals, ui.now)
         val mode = signals["drive_mode"]?.takeIf { it.fresh(ui.now, 3500) }?.value
         val label = when (mode) { "NORMAL" -> "일반"; "ECO" -> "에코"; "SPORT" -> "스포츠"; else -> null }
         Copy("기록 중 · ${elapsed / 60}분 ${elapsed % 60}초" + (label?.let { " · ${it} 모드" } ?: ""), 22, p.second)
     }
     val point = locationPoint(signals["location"], ui.now)
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (wide) {
+        if (destination != null) {
+            Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Copy("기본 내비 안내", 29, p.blue)
+                Copy(destination.name, if (wide) 56 else 44, weight = FontWeight.SemiBold)
+                Copy("길과 방향은 기본 내비에서 확인하세요.", 28, p.second)
+                DriveMotionMeter(signals["speed"])
+            }
+        } else if (wide) {
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
                 CourseMap(point, Modifier.weight(1f).fillMaxHeight(), linksEnabled = parked, route = s.practiceRoute)
                 Column(Modifier.weight(1f).then(if (parked) Modifier.verticalScroll(rememberScrollState()) else Modifier),
@@ -356,20 +355,15 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             Spacer(Modifier.height(12.dp))
             CourseMap(point, Modifier.fillMaxWidth().weight(1f), linksEnabled = parked, route = s.practiceRoute)
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                DriveMotionMeter(signals["speed"])
-                Box(Modifier.widthIn(max = 340.dp)) { DriveHelp(s, parked, signals, ui.now) }
-            }
+            DriveMotionMeter(signals["speed"])
             Copy("기록 중 · ${elapsed / 60}분 ${elapsed % 60}초", 22, p.second)
         }
-        if (parked) {
-            NavigationStatus(navigation)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Link("기본 내비 열기", modifier = Modifier.weight(1f)) { c.openNavigation() }
+        if (parked && destination == null) NavigationStatus(navigation)
+        DriveHelp(s, parked, signals, ui.now) {
+            Link(if (wide) "기본 내비 열기" else "내비 열기", modifier = Modifier.weight(1f)) { c.openNavigation() }
+            if (parked) {
                 Action(if (ui.saving) "저장 중" else "기록 종료", enabled = !ui.saving, modifier = Modifier.weight(1f), onClick = c::finish)
             }
-        } else {
-            Link("기본 내비 열기") { c.openNavigation() }
         }
     }
 }

@@ -5,6 +5,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DriveHelpTest {
+    @Test fun spokenTurnUsesOnlyLivePracticeDistanceAndSkipsNativeOrLateCues() {
+        val source = "선택 코스 · 차량 위치 기준"
+        val approach = DriveCue("약 55 m 앞 좌회전 연습", source, "LEFT", 54)
+        assertEquals(SpokenCourseCue("좌회전", "약 55미터 앞에 좌회전 연습 지점이 있어요."), spokenCourseCue(approach))
+        assertNull(spokenCourseCue(approach.copy(source = "기본 내비 안내")))
+        assertNull(spokenCourseCue(approach.copy(metres = 29)))
+        assertNull(spokenCourseCue(approach.copy(metres = 151)))
+        assertNull(spokenCourseCue(approach.copy(turnKey = "LANE")))
+        assertNull(spokenCourseCue(DriveCue("위치 신호 대기 중", "이번 회차의 위치를 기다리고 있어요.")))
+        assertEquals("conflict", spokenCourseCue(DriveCue("정차 후 경로를 확인하세요", "차량과 기본 내비 위치가 달라요"))?.key)
+    }
+
+    @Test fun spokenBeltDistinguishesMissingAndStaleSignalsFromAConfirmedBuckle() {
+        val ui = PracticeUi(page = Page.BELT, now = 10_000)
+        val off = Signal("false", "VALID", receivedMs = 10_000)
+        val missing = parkedInstruction(ui, emptyMap())
+        assertEquals("운전석 안전벨트를 매 주세요.", parkedInstruction(ui, mapOf("belt" to off)))
+        assertEquals("운전석 안전벨트가 채워졌어요. 다음으로 넘어가세요.",
+            parkedInstruction(ui, mapOf("belt" to off.copy(value = "true"))))
+        assertEquals(missing, parkedInstruction(ui, mapOf("belt" to off.copy(receivedMs = 100))))
+        assertNull(parkedInstruction(ui.copy(page = Page.DRIVING), emptyMap()))
+    }
+
     @Test fun retrievesReviewedTopicsAndDeclinesUnknownOrLiveDecisions() {
         assertEquals(GuideTopic.WIPER, GuideAnswers.find("와이퍼 한 번")?.topic)
         assertEquals(GuideTopic.DEFOG, GuideAnswers.find("유리에 김이 서려")?.topic)

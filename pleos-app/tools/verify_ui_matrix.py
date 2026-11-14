@@ -45,7 +45,7 @@ font_layouts = {}
 font_conversions = {}
 small_map_labels = {"© OpenStreetMap contributors", "연습 코스"}
 header_taps = []
-app_action_markers = ("기본 내비 열기",) if args.stage == "driving" else body_markers
+app_action_markers = ("기본 내비 열기", "내비 열기") if args.stage == "driving" else body_markers
 checks["allowedHeaderTaps"] = header_taps
 
 

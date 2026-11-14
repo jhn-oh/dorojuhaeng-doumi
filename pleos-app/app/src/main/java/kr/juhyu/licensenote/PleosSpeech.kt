@@ -29,6 +29,8 @@ internal class PleosSpeech(private val context: Context, private val status: (St
     private var focus: AudioFocusRequest? = null
     private var timeout: Runnable? = null
     val busy get() = release != null
+    var listening = false
+        private set
 
     private fun event(id: Long, action: () -> Unit) {
         main.post { if (epoch == id) runCatching(action).onFailure { fail("음성 서비스에 연결할 수 없어요.", it) } }
@@ -45,6 +47,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
         timeout = null
         val cleanup = release
         release = null
+        listening = false
         runCatching { cleanup?.invoke() }
         focus?.let { runCatching { audio.abandonAudioFocusRequest(it) } }
         focus = null
@@ -73,6 +76,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
 
     fun listen(onFinal: (String) -> Unit) {
         val id = start(15_000) ?: return
+        listening = true
         status("차량 마이크 연결 중", true)
         runCatching {
             val client = SpeechToText(context.applicationContext, SttMode.ON_DEVICE)
@@ -114,8 +118,8 @@ internal class PleosSpeech(private val context: Context, private val status: (St
         }.onFailure { fail("차량 음성 인식 연결 실패", it) }
     }
 
-    fun speak(text: String, validUntilMs: Long) {
-        if (SystemClock.elapsedRealtime() >= validUntilMs) return
+    fun speak(text: String, validUntilMs: Long, applicable: () -> Boolean = { true }) {
+        if (SystemClock.elapsedRealtime() >= validUntilMs || !applicable()) return
         val id = start(12_000) ?: return
         status("음성 안내 준비 중", true)
         runCatching {
@@ -123,7 +127,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
             val listener = object : EventListener {
                 override fun onReady() = Unit
                 override fun onStart() = event(id) {
-                    if (SystemClock.elapsedRealtime() > validUntilMs) stop()
+                    if (SystemClock.elapsedRealtime() > validUntilMs || !applicable()) stop()
                     else {
                         Log.i("DriveSpeech", "TTS playback started")
                         status("음성 안내 중", true)
@@ -142,7 +146,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
             client.initialize(object : TtsInit {
                 override fun onFailure(errorType: TtsError) = event(id) { fail("차량 음성 출력 연결 실패", errorType) }
                 override fun onSuccess() = event(id) {
-                    if (SystemClock.elapsedRealtime() > validUntilMs) stop()
+                    if (SystemClock.elapsedRealtime() > validUntilMs || !applicable()) stop()
                     else {
                         client.addEventListener(listener)
                         client.setLocale(Locale.KOREA)
