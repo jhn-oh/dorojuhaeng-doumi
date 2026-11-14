@@ -353,7 +353,7 @@ object PracticeEvaluator {
 
     private fun evaluateVehicleReview(s: PracticeSession): Assessment {
         if (s.interrupted || s.safetyIssue) return Assessment("HELD", null, 0, false, "여기까지의 차량 기록",
-            if (s.interrupted) "연습이 중단돼 수신한 기록만 남겼어요." else "안전 문제가 기록돼 구간별 평가는 보류했어요.")
+            if (s.interrupted) "중단 전까지 받은 신호를 저장했어요." else "안전 문제로 구간 판단을 보류했어요.")
         val end = s.endedAtMs ?: return Assessment("RECORDING", null, 0, false, "차량 기록 중", "주차 후 기록을 마치면 구간별로 볼 수 있어요.")
         val result = when {
             s.nativeDestination != null -> Assessment("DESTINATION_PRACTICE", null, 0, false, "목적지 연습 기록", "선택한 목적지와 차량 기록을 저장했어요.")
@@ -368,11 +368,11 @@ object PracticeEvaluator {
                         if (turns.isEmpty()) "코스의 위치와 조향이 함께 확인된 회전 구간이 없어요." else "해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.")
                     else -> Assessment("VEHICLE_RECORDED", null, checked, false,
                         if (suggested) "다시 연습할 깜빡이" else "구간별 깜빡이 기록",
-                        "위치와 조향으로 추정한 회전 ${checked}곳의 기록이에요.", practiceSuggested = suggested)
+                        "위치·조향으로 추정한 회전 ${checked}곳", practiceSuggested = suggested)
                 }
             }
         }
-        return if (unbuckledWhileMoving(s)) result.copy(reason = result.reason + "\n주행 중 운전석 벨트 미착용 신호가 있었어요.") else result
+        return if (unbuckledWhileMoving(s)) result.copy(reason = result.reason + "\n주행 중 운전석 벨트 미착용 신호") else result
     }
 
     private fun evaluateLaneSignals(s: PracticeSession, end: Long): Assessment {
