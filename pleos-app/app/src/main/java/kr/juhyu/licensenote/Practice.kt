@@ -109,7 +109,20 @@ fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
 
 fun Signal?.fresh(now: Long, maxAge: Long = 2500): Boolean = this != null && quality == "VALID" && receivedMs <= now && now - receivedMs <= maxAge
 
-internal fun Signal?.driverBeltFastened(now: Long) = fresh(now) && this?.value == "true"
+internal enum class DepartureBelt {
+    FASTENED, UNFASTENED, UNAVAILABLE;
+
+    fun canProceed(manual: Boolean) = this == FASTENED || (this == UNAVAILABLE && manual)
+}
+
+internal fun Signal?.departureBelt(now: Long): DepartureBelt {
+    if (!fresh(now)) return DepartureBelt.UNAVAILABLE
+    return when (this?.value) {
+        "true" -> DepartureBelt.FASTENED
+        "false" -> DepartureBelt.UNFASTENED
+        else -> DepartureBelt.UNAVAILABLE
+    }
+}
 
 internal data class DepartureDoors(val firstOpen: String?, val allClosed: Boolean) {
     fun canConfirm(manual: Boolean) = firstOpen == null && (allClosed || manual)

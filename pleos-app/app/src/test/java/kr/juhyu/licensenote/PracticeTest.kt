@@ -7,11 +7,23 @@ class PracticeTest {
     private val doorKeys = listOf("ROW_1_LEFT", "ROW_1_RIGHT", "ROW_2_LEFT", "ROW_2_RIGHT").map { "door:$it" }
     @Test fun automaticBuckleConfirmationRequiresTheCurrentDriverBuckleValue() {
         val buckled = Signal("true", "VALID", receivedMs = 4000)
-        assertTrue(buckled.driverBeltFastened(5000))
-        assertFalse(buckled.copy(value = "false").driverBeltFastened(5000))
-        assertFalse(buckled.copy(quality = "ERROR").driverBeltFastened(5000))
-        assertFalse(buckled.driverBeltFastened(6501))
-        assertFalse((null as Signal?).driverBeltFastened(5000))
+        assertTrue(buckled.departureBelt(5000).canProceed(false))
+        val unbuckled = buckled.copy(value = "false").departureBelt(5000)
+        assertEquals(DepartureBelt.UNFASTENED, unbuckled)
+        assertFalse(unbuckled.canProceed(false))
+        assertFalse(unbuckled.canProceed(true))
+    }
+    @Test fun onlyAnUnavailableBuckleAllowsDriverConfirmationInPlaceOfASensorReading() {
+        val now = 5000L
+        val invalid = Signal("false", "DENIED", receivedMs = now)
+        for (signal in listOf(null, invalid, invalid.copy(quality = "UNSUPPORTED"), invalid.copy(quality = "ERROR"),
+            invalid.copy(quality = "VALID", receivedMs = now - 2501),
+            invalid.copy(quality = "VALID", value = "unknown"))) {
+            val belt = signal.departureBelt(now)
+            assertEquals(DepartureBelt.UNAVAILABLE, belt)
+            assertFalse(belt.canProceed(false))
+            assertTrue(belt.canProceed(true))
+        }
     }
     @Test fun rechecksAllReportedDoorsWhenStartingEvenAfterManualConfirmation() {
         val now = 5000L

@@ -31,7 +31,7 @@ if args.vehicle_review:
     stage_text["notebook"] = "주행 복습"
 required = [stage_text[args.stage], *args.expected_text]
 body_markers = {
-    "belt": ("직접 확인했어요", "벨트를 맸어요", "다음"), "mirror": ("잘 보여요",),
+    "belt": ("계기판 읽기", "직접 확인했어요", "벨트를 맸어요", "다음"), "mirror": ("잘 보여요",),
     "doors": ("코스 보기", "모두 닫혔어요"),
     "course": ("이 코스로 시작", "기록 시작"), "driving": (), "review": ("보지 못했어요",),
     "result": ("차량 기록 보기",) if args.vehicle_review else ("오답노트 보기", "기록 보기"),

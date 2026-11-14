@@ -231,9 +231,9 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         val data = signals()
         val now = SystemClock.elapsedRealtime()
         if (state.value.page != Page.BELT || !canReview(data, now)) return
-        val belt = data["belt"]
-        if (!manual && !belt.driverBeltFastened(now)) return
-        state.value = state.value.copy(manualBelt = manual, page = Page.MIRROR, error = null)
+        val belt = data["belt"].departureBelt(now)
+        if (!belt.canProceed(manual)) return
+        state.value = state.value.copy(manualBelt = belt == DepartureBelt.UNAVAILABLE, page = Page.MIRROR, error = null)
     }
     private fun doConfirmDoors(manual: Boolean) {
         val current = state.value
@@ -245,6 +245,9 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null)
     }
     private fun doOnSignal(key: String, signal: Signal, previous: Signal?) {
+        if (key == "belt" && state.value.manualBelt && signal.departureBelt(SystemClock.elapsedRealtime()) == DepartureBelt.UNFASTENED) {
+            state.value = state.value.copy(manualBelt = false)
+        }
         if (key == "speed" || key == "gear" || key == "ux") closeRestrictedGuideTopic(SystemClock.elapsedRealtime())
         val e = engine ?: return
         e.signalChanged(key, signal, previous)
@@ -298,8 +301,8 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         val data = signals()
         if (state.value.page != Page.COURSE || state.value.courseStep != CourseStep.PREVIEW) return
-        if (!state.value.manualBelt && !data["belt"].driverBeltFastened(now)) {
-            state.value = state.value.copy(page = Page.BELT, resumePreviewAfterChecks = true, preflightConfirmed = false,
+        if (!data["belt"].departureBelt(now).canProceed(state.value.manualBelt)) {
+            state.value = state.value.copy(page = Page.BELT, manualBelt = false, resumePreviewAfterChecks = true, preflightConfirmed = false,
                 error = "출발 전에 운전석 벨트를 다시 확인해 주세요.")
             return
         }

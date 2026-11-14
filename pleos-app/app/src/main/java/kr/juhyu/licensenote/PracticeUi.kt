@@ -122,21 +122,27 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 Page.WELCOME -> Preparation(wide, R.drawable.figma_warning, 0, "연습면허로 운전하나요?", "연습운전면허와 주행연습 표지를 준비하세요.\n이 차종 면허를 딴 지 2년이 지났고 면허가 유효한 분에게 지도를 받으세요.", { Action("확인했어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptIntro); Link("이미 운전면허가 있어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptLicensed) })
                                 Page.BELT -> {
                                     val belt = signals["belt"]
-                                    val worn = belt.driverBeltFastened(ui.now)
+                                    val buckle = belt.departureBelt(ui.now)
+                                    val title = when (buckle) {
+                                        DepartureBelt.FASTENED -> "안전벨트를 맸어요"
+                                        DepartureBelt.UNFASTENED -> "안전벨트를 매세요"
+                                        DepartureBelt.UNAVAILABLE -> "안전벨트를 확인해 주세요"
+                                    }
                                     val description = when {
-                                        worn -> "운전석 버클이 채워졌어요."
-                                        belt.fresh(ui.now) -> "차에 타면 운전석 안전벨트부터 매세요.\n버클이 채워지면 알려드릴게요."
+                                        buckle == DepartureBelt.FASTENED -> "운전석 버클이 채워졌어요."
+                                        buckle == DepartureBelt.UNFASTENED -> "운전석 버클이 풀려 있어요.\n벨트를 매면 다음으로 갈 수 있어요."
                                         belt?.quality == "UNSUPPORTED" -> "이 차는 운전석 버클 확인을 지원하지 않아요.\n벨트를 매고 직접 확인해 주세요."
                                         belt?.quality == "DENIED" -> "버클을 읽을 권한이 없어요.\n벨트를 매고 직접 확인해 주세요."
                                         belt?.quality == "ERROR" -> "버클 신호를 다시 연결하고 있어요.\n벨트를 매고 직접 확인해도 돼요."
                                         else -> "운전석 버클 신호를 기다리고 있어요.\n벨트를 매고 직접 확인해도 돼요."
                                     }
-                                    Preparation(wide, R.drawable.figma_belt, 1, if (worn) "안전벨트를 맸어요" else if (belt.fresh(ui.now)) "안전벨트를 매세요" else "안전벨트를 확인해 주세요", description, {
-                                        if (worn) Action("다음", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(false) }
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            Link("계기판 읽기", modifier = Modifier.weight(1f)) { c.openGuide(GuideTopic.SPEED) }
-                                            Link(if (belt.fresh(ui.now)) "직접 확인했어요" else "벨트를 맸어요", modifier = Modifier.weight(1f)) { c.confirmBelt(true) }
+                                    Preparation(wide, R.drawable.figma_belt, 1, title, description, {
+                                        when (buckle) {
+                                            DepartureBelt.FASTENED -> Action("다음", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(false) }
+                                            DepartureBelt.UNAVAILABLE -> Action("벨트를 맸어요", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(true) }
+                                            DepartureBelt.UNFASTENED -> Unit
                                         }
+                                        Link("계기판 읽기", modifier = Modifier.fillMaxWidth()) { c.openGuide(GuideTopic.SPEED) }
                                     })
                                 }
                                 Page.MIRROR -> Preparation(wide, R.drawable.figma_mirror, 2, "거울을 맞춰 주세요", "먼저 좌석을 몸에 맞추세요.\n룸미러와 양쪽 사이드미러가 잘 보이나요?", {
