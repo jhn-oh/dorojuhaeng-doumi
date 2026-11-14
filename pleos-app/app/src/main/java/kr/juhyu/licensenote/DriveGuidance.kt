@@ -65,14 +65,17 @@ internal fun driveCue(session: PracticeSession, signals: Map<String, Signal>, no
     val lat = coordinates?.getOrNull(0)?.toDoubleOrNull()?.takeIf { it.isFinite() && it in -90.0..90.0 }
     val lon = coordinates?.getOrNull(1)?.toDoubleOrNull()?.takeIf { it.isFinite() && it in -180.0..180.0 }
     val separation = if (lat != null && lon != null) distanceMeters(point, GeoPoint(lat, lon)) else null
-    if (separation != null && separation > 100 && signals["navigation_status"]?.value == "ROUTE_DRIVE") {
+    val route = signals["navigation_route"]?.takeIf { it.fresh(now, 6500) }?.value
+    val status = signals["navigation_status"]
+    // On Connect 2.1 the native UI can guide while isRouting=false and the separate status callback is absent.
+    val guidanceActive = status?.let { it.quality == "VALID" && it.value == "ROUTE_DRIVE" } == true ||
+        route?.substringAfter(',') == "ROUTE_GUIDING" || route?.startsWith("true,") == true
+    if (separation != null && separation > 100 && guidanceActive) {
         return DriveCue("정차 후 경로를 확인하세요", "차량과 기본 내비 위치가 달라요")
     }
     // The first provider TBT is usable only when the provider independently sees the same car,
     // active destination/waypoints, direction, and nearby course distance.
     val native = signals["course_tbt"]?.takeIf { it.fresh(now, 3500) && it.receivedMs >= session.startedAtMs }?.value?.split('|') ?: return practice
-    val route = signals["navigation_route"]?.takeIf { it.fresh(now, 6500) }?.value
-    val status = signals["navigation_status"]
     if (route?.startsWith("true,") != true || status?.quality != "VALID" || status.value != "ROUTE_DRIVE" ||
         native.size != 3 || native[0] != session.courseId || native[1] != "TURN_${practice.turnKey}") return practice
     if (!nativeFix.fresh(now, 3500) || separation == null || separation > 18) return practice

@@ -3,13 +3,54 @@ import collections
 import hashlib
 import json
 import math
+import argparse
+import tempfile
+import time
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 HERE = Path(__file__).parent
 
 
 def read(name):
     return json.loads((HERE / name).read_text(encoding="utf-8-sig"))
+
+
+def fetch_inputs():
+    """Fetch snapshots for an independent, local recheck. No vehicle location is sent."""
+    service = "https://portal.esrikr.com/arcgis/rest/services/Hosted/ITS_LINK_Data/FeatureServer/0"
+    urls = {
+        "its-layer.json": service + "?f=json",
+        "its-item.json": "https://portal.esrikr.com/portal/sharing/rest/content/items/215af5a55a0c4769a82297154209b5b2?f=pjson",
+        "lane-corridor.json": service + "/query?" + urlencode({
+            "f":"json", "geometryType":"esriGeometryEnvelope", "geometry":"127.025,37.483,127.116,37.524",
+            "inSR":4326, "outSR":4326, "spatialRel":"esriSpatialRelIntersects", "where":"1=1",
+            "outFields":"link_id,lanes,road_name,road_rank,road_type,road_use,max_spd", "returnGeometry":"true"
+        }),
+    }
+    attributes = ["way_id", "lane_count", "road_class", "use", "names", "length", "traversability",
+                  "forward", "begin_shape_index", "end_shape_index", "toll", "id"]
+    for i, leg in enumerate(read("final.json")["trip"]["legs"], 1):
+        query = {"encoded_polyline":leg["shape"], "costing":"auto", "shape_match":"edge_walk", "units":"kilometers",
+                 "filters":{"action":"include", "attributes":["edge." + name for name in attributes]}}
+        name = f"arterial-edge-{i}.json" if i < 3 else "final-edge-3.json"
+        urls[name] = "https://valhalla1.openstreetmap.de/trace_attributes?" + urlencode({"json":json.dumps(query, separators=(",", ":"))})
+    for name, url in urls.items():
+        path = HERE / name
+        if path.exists():
+            continue
+        request = Request(url, headers={"User-Agent":"Dorojuhaeng-Doumi/Public-Course-Research",
+                                        "X-Client-Id":"dorojuhaeng-doumi-course-research"})
+        with urlopen(request, timeout=35) as response:
+            data = response.read()
+        payload = json.loads(data)
+        if "error" in payload or (name == "lane-corridor.json" and payload.get("exceededTransferLimit")):
+            raise ValueError(f"Incomplete provider response for {name}")
+        with tempfile.NamedTemporaryFile(dir=HERE, delete=False) as tmp:
+            tmp.write(data)
+        Path(tmp.name).replace(path)
+        time.sleep(2)
 
 
 def decode(shape):
@@ -103,8 +144,17 @@ def main():
               "maxOffsetMeters": round(max(s[0] for s in checks), 2), "minLanes": min(s[1] for s in covered),
               "maxLanes": max(s[1] for s in covered), "matchedStandardLinks": sorted({s[2] for s in covered}),
               "namedRoads": sorted({s[3] for s in covered}), "traceSha256": trace_hash, "sourceSha256": hashes}
-    (HERE / "coverage.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf8")
+    return report
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fetch-missing", action="store_true")
+    parser.add_argument("--output", type=Path, default=HERE / "coverage-recheck.json")
+    args = parser.parse_args()
+    if args.fetch_missing:
+        fetch_inputs()
+    result = main()
+    args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf8")
+    previous = read("coverage.json")["sourceSha256"]
+    print("Source byte hashes differing from 2026-11-14:", [name for name, digest in result["sourceSha256"].items() if previous.get(name) != digest])

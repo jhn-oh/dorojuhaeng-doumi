@@ -81,6 +81,10 @@ class DriveHelpTest {
         val conflicting = driveCue(session, signals + ("navigation_location" to signal("37.4127,127.0946")), now)
         assertNull(conflicting.turnKey)
         assertEquals("정차 후 경로를 확인하세요", conflicting.title)
+        val nativeGuidingWithoutStatus = (signals - "navigation_status") + mapOf(
+            "navigation_route" to signal("false,ROUTE_GUIDING"),
+            "navigation_location" to signal("37.4127212,127.094681"))
+        assertEquals(conflicting, driveCue(session, nativeGuidingWithoutStatus, now))
     }
     @Test fun vehicleCounterSummaryRequiresConsistentStartAndEndSamples() {
         fun sample(t: Long, value: String) = RecordedSignal(t, "odometer_km", value, "VALID", "Vehicle/Odometer", "READ")
