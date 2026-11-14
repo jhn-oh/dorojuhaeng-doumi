@@ -92,6 +92,21 @@ fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
 }
 
 fun Signal?.fresh(now: Long, maxAge: Long = 2500): Boolean = this != null && quality == "VALID" && receivedMs <= now && now - receivedMs <= maxAge
+
+internal fun Signal?.driverBeltFastened(now: Long) = fresh(now) && this?.value == "true"
+
+internal data class DepartureDoors(val firstOpen: String?, val allClosed: Boolean) {
+    fun canConfirm(manual: Boolean) = firstOpen == null && (allClosed || manual)
+}
+
+internal fun departureDoors(signals: Map<String, Signal>, now: Long): DepartureDoors {
+    val positions = signals.filterKeys { it.startsWith("door:") }.mapValues { (_, signal) ->
+        signal.takeIf { it.fresh(now) }?.value?.toIntOrNull()
+    }
+    val open = positions.entries.firstOrNull { (it.value ?: 0) > 0 }?.key
+    return DepartureDoors(open, positions.keys.containsAll(cabinDoors) && positions.values.all { it == 0 })
+}
+
 fun canReview(signals: Map<String, Signal>, now: Long): Boolean {
     val speed = signals["speed"]
     val gear = signals["gear"]

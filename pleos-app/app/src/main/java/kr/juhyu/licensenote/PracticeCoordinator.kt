@@ -29,8 +29,10 @@ data class PracticeUi(
     val now: Long = SystemClock.elapsedRealtime(),
     val reviewEventId: String? = null,
     val preflightConfirmed: Boolean = false,
+    val resumePreviewAfterChecks: Boolean = false,
     val textScale: Float = 1f,
     val guideTopic: GuideTopic? = null,
+    val guideReturnPage: Page = Page.WELCOME,
     val courseStep: CourseStep = CourseStep.LIST,
     val selectedRouteId: String = PracticeCourse.id,
     val previewOrigin: CourseStep = CourseStep.LIST,
@@ -52,7 +54,6 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     val ui = state.asStateFlow()
     private var engine: PracticeEngine? = null
     private var pageBeforeDiagnostics = Page.COURSE
-    private var pageBeforeGuide = Page.WELCOME
     private var savingError = false
     private val introContentVersion = 1
     // Existing accepted notices carried this same wording before the version field existed.
@@ -113,8 +114,13 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     fun openGuide() = dispatch {
         val current = state.value
         if (!current.page.hasGuideEntry() || current.loading || current.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
-        pageBeforeGuide = current.page
-        state.value = current.copy(page = Page.GUIDE, guideTopic = null)
+        state.value = current.copy(page = Page.GUIDE, guideTopic = null, guideReturnPage = current.page)
+    }
+    fun closeGuide() = dispatch {
+        val current = state.value
+        if (current.page == Page.GUIDE && canReview(signals(), SystemClock.elapsedRealtime())) {
+            state.value = current.copy(page = current.guideReturnPage, guideTopic = null)
+        }
     }
     fun openGuideTopic(topic: GuideTopic) = dispatch {
         if (state.value.page == Page.GUIDE && canReview(signals(), SystemClock.elapsedRealtime())) {
@@ -213,7 +219,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     private fun doGo(page: Page) {
         if (!canReview(signals(), SystemClock.elapsedRealtime()) && page != Page.DRIVING) return
         if (page == Page.BELT || (page == Page.COURSE && state.value.page in setOf(Page.RESULT, Page.NOTEBOOK))) {
-            state.value = state.value.copy(page = Page.BELT, manualBelt = false, manualDoor = false, preflightConfirmed = false, error = null)
+            state.value = state.value.copy(page = Page.BELT, manualBelt = false, manualDoor = false, preflightConfirmed = false, resumePreviewAfterChecks = false, error = null)
             return
         }
         state.value = state.value.copy(page = page, error = null, reviewEventId = if (page == Page.REVIEW) engine?.session?.turns?.firstOrNull { it.exitMs != null }?.id else null)
@@ -225,8 +231,23 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         preferences.edit().putBoolean("introSeen", true).putInt("introVersion", introContentVersion).putString("driverType", driverType).apply()
         go(Page.BELT)
     }
-    private fun doConfirmBelt(manual: Boolean) { state.value = state.value.copy(manualBelt = manual); go(Page.MIRROR) }
-    private fun doConfirmDoors(manual: Boolean) { state.value = state.value.copy(manualDoor = manual, preflightConfirmed = true, courseStep = CourseStep.LIST, courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null); go(Page.COURSE) }
+    private fun doConfirmBelt(manual: Boolean) {
+        val data = signals()
+        val now = SystemClock.elapsedRealtime()
+        if (state.value.page != Page.BELT || !canReview(data, now)) return
+        val belt = data["belt"]
+        if (!manual && !belt.driverBeltFastened(now)) return
+        state.value = state.value.copy(manualBelt = manual, page = Page.MIRROR, error = null)
+    }
+    private fun doConfirmDoors(manual: Boolean) {
+        val current = state.value
+        val data = signals()
+        val now = SystemClock.elapsedRealtime()
+        if (current.page != Page.DOORS || !canReview(data, now) || !departureDoors(data, now).canConfirm(manual)) return
+        val confirmed = current.copy(manualDoor = manual, preflightConfirmed = true, page = Page.COURSE, resumePreviewAfterChecks = false, error = null)
+        state.value = if (current.resumePreviewAfterChecks) confirmed else confirmed.copy(courseStep = CourseStep.LIST,
+            courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null)
+    }
     private fun doOnSignal(key: String, signal: Signal, previous: Signal?) {
         if (key == "speed" || key == "gear" || key == "ux") closeRestrictedGuideTopic(SystemClock.elapsedRealtime())
         val e = engine ?: return
@@ -248,8 +269,8 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         if (p == Page.GUIDE) {
             // Returning to an in-progress preparation step must preserve its confirmations.
-            state.value = if (state.value.guideTopic != null) state.value.copy(guideTopic = null)
-                else state.value.copy(page = pageBeforeGuide)
+            if (state.value.guideTopic != null) state.value = state.value.copy(guideTopic = null)
+            else closeGuide()
             return
         }
         go(when (p) {
@@ -276,12 +297,22 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             return
         }
         val data = signals()
+        if (state.value.page != Page.COURSE || state.value.courseStep != CourseStep.PREVIEW) return
+        if (!state.value.manualBelt && !data["belt"].driverBeltFastened(now)) {
+            state.value = state.value.copy(page = Page.BELT, resumePreviewAfterChecks = true, preflightConfirmed = false,
+                error = "출발 전에 운전석 벨트를 다시 확인해 주세요.")
+            return
+        }
+        if (!departureDoors(data, now).canConfirm(state.value.manualDoor)) {
+            state.value = state.value.copy(page = Page.DOORS, resumePreviewAfterChecks = true, preflightConfirmed = false,
+                error = "출발 전에 문 상태를 다시 확인해 주세요.")
+            return
+        }
         val doors = data.keys.filter { it.startsWith("door:") }.sorted()
         val turnSubscription = data["turn_subscription"]
         val turnReady = turnSubscription?.quality == "VALID" && turnSubscription.value == "READY"
         val previousEngine = engine
         val previous = previousEngine?.session
-        if (state.value.page != Page.COURSE || state.value.courseStep != CourseStep.PREVIEW) return
         val chosen = state.value.chosenNative
         val active = chosen?.let { selectedNativeDestination(data, state.value.searchStarted, now) }
         if (chosen != null && (active == null || !chosen.samePlace(active))) {

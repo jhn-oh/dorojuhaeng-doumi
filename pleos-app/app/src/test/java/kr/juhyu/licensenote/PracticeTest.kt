@@ -5,6 +5,38 @@ import org.junit.Test
 
 class PracticeTest {
     private val doorKeys = listOf("ROW_1_LEFT", "ROW_1_RIGHT", "ROW_2_LEFT", "ROW_2_RIGHT").map { "door:$it" }
+    @Test fun automaticBuckleConfirmationRequiresTheCurrentDriverBuckleValue() {
+        val buckled = Signal("true", "VALID", receivedMs = 4000)
+        assertTrue(buckled.driverBeltFastened(5000))
+        assertFalse(buckled.copy(value = "false").driverBeltFastened(5000))
+        assertFalse(buckled.copy(quality = "ERROR").driverBeltFastened(5000))
+        assertFalse(buckled.driverBeltFastened(6501))
+        assertFalse((null as Signal?).driverBeltFastened(5000))
+    }
+    @Test fun rechecksAllReportedDoorsWhenStartingEvenAfterManualConfirmation() {
+        val now = 5000L
+        val closed = doorKeys.associateWith { Signal("0", "VALID", receivedMs = now) }
+        assertTrue(departureDoors(closed, now).canConfirm(false))
+        val reopened = departureDoors(closed + ("door:REAR" to Signal("1", "VALID", receivedMs = now)), now)
+        assertEquals("door:REAR", reopened.firstOpen)
+        assertFalse(reopened.canConfirm(false))
+        assertFalse(reopened.canConfirm(true))
+    }
+    @Test fun missingStaleAndInvalidDoorPositionsRequireManualConfirmation() {
+        val now = 5000L
+        val closed = doorKeys.associateWith { Signal("0", "VALID", receivedMs = now) }
+        val driverDoor = doorKeys.first()
+        val snapshots = listOf(closed - driverDoor, closed + (driverDoor to Signal("-1", "VALID", receivedMs = now)),
+            closed + (driverDoor to Signal(null, "VALID", receivedMs = now)),
+            closed + (driverDoor to Signal("0", "VALID", receivedMs = now - 2501)),
+            closed + (driverDoor to Signal("0", "ERROR", receivedMs = now)))
+        for (signals in snapshots) {
+            val doors = departureDoors(signals, now)
+            assertNull(doors.firstOpen)
+            assertFalse(doors.canConfirm(false))
+            assertTrue(doors.canConfirm(true))
+        }
+    }
     private fun fixture(): PracticeSession {
         val samples = (1000L..11000L step 1000L).flatMap { now ->
             (doorKeys.map { it to "0" } + listOf("turn" to "OFF", "gear" to if (now == 11000L) "4" else "8")).map { (key, value) ->

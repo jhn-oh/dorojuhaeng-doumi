@@ -7,6 +7,15 @@ internal const val GUIDE_HIGH_BEAM = "guide_high_beam"
 
 internal fun Page.hasGuideEntry() = this in setOf(Page.WELCOME, Page.BELT, Page.MIRROR, Page.DOORS, Page.COURSE, Page.RESULT, Page.NOTEBOOK)
 
+internal fun Page.guideReturnLabel() = when (this) {
+    Page.BELT, Page.MIRROR, Page.DOORS -> "출발 점검 계속하기"
+    Page.WELCOME -> "처음 안내로 돌아가기"
+    Page.COURSE -> "연습 코스로 돌아가기"
+    Page.RESULT -> "연습 결과로 돌아가기"
+    Page.NOTEBOOK -> "오답노트로 돌아가기"
+    else -> "설명서 닫기"
+}
+
 internal enum class GuideSection(val label: String) {
     START("출발 준비"), WEATHER("비·야간"), INDICATORS("표시등·경고"), PARK("주차·정차")
 }
@@ -79,7 +88,7 @@ internal fun guideBeamLabel(signal: Signal?, now: Long): String {
     }
 }
 
-private val cabinDoors = listOf("door:ROW_1_LEFT", "door:ROW_1_RIGHT", "door:ROW_2_LEFT", "door:ROW_2_RIGHT")
+internal val cabinDoors = listOf("door:ROW_1_LEFT", "door:ROW_1_RIGHT", "door:ROW_2_LEFT", "door:ROW_2_RIGHT")
 
 internal fun guideDoorSummary(signals: Map<String, Signal>, now: Long): String {
     val positions = cabinDoors.associateWith { key ->

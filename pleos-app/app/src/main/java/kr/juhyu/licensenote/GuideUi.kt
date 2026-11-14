@@ -24,11 +24,17 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 @Composable
-internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: Long, wide: Boolean, open: (GuideTopic) -> Unit) {
+internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: Long, wide: Boolean,
+                         returnPage: Page, close: () -> Unit, open: (GuideTopic) -> Unit) {
     var section by rememberSaveable { mutableStateOf(GuideSection.START) }
     val listScroll = rememberScrollState()
-    if (topic == null) GuideDashboard(signals, now, wide, section, listScroll, { section = it }, open)
-    else key(topic) { GuideLesson(topic, signals, now, wide) }
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (topic == null) GuideDashboard(signals, now, wide, section, listScroll, { section = it }, open)
+            else key(topic) { GuideLesson(topic, signals, now, wide) }
+        }
+        GuideButton(returnPage.guideReturnLabel(), Modifier.fillMaxWidth().padding(top = 12.dp), primary = topic == null, onClick = close)
+    }
 }
 
 @Composable

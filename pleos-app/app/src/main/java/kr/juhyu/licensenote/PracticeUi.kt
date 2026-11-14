@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,9 +54,9 @@ private val Night = Palette(Color(0xFF11171D), Color(0xFFEDF2F8), Color(0xFFC0CD
 internal val LocalPalette = staticCompositionLocalOf { Day }
 internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
 
-@Composable internal fun Copy(text: String, size: Int = 34, color: Color = LocalPalette.current.ink, weight: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Start, modifier: Modifier = Modifier) {
+@Composable internal fun Copy(text: String, size: Int = 34, color: Color = LocalPalette.current.ink, weight: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Start, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
     val textScale = LocalAppTextScale.current
-    Text(text, modifier, color, fontSize = (size * textScale).sp, fontWeight = weight, fontFamily = Asta, lineHeight = (size * 1.36 * textScale).sp, textAlign = align)
+    Text(text, modifier, color, fontSize = (size * textScale).sp, fontWeight = weight, fontFamily = Asta, lineHeight = (size * 1.36 * textScale).sp, textAlign = align, style = style)
 }
 @Composable internal fun Action(text: String, enabled: Boolean = true, secondary: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalPalette.current
@@ -120,7 +121,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 Page.WELCOME -> Preparation(wide, R.drawable.figma_warning, 0, "연습면허로 운전하나요?", "연습운전면허와 주행연습 표지를 준비하세요.\n이 차종 면허를 딴 지 2년이 지났고 면허가 유효한 분에게 지도를 받으세요.", { Action("확인했어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptIntro); Link("이미 운전면허가 있어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptLicensed) })
                                 Page.BELT -> {
                                     val belt = signals["belt"]
-                                    val worn = belt.fresh(ui.now) && belt?.value == "true"
+                                    val worn = belt.driverBeltFastened(ui.now)
                                     val description = when {
                                         worn -> "운전석 버클이 채워졌어요."
                                         belt.fresh(ui.now) -> "차에 타면 운전석 안전벨트부터 매세요.\n버클이 채워지면 알려드릴게요."
@@ -134,18 +135,22 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                         Link(if (belt.fresh(ui.now)) "직접 확인했어요" else "벨트를 맸어요", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(true) }
                                     })
                                 }
-                                Page.MIRROR -> Preparation(wide, R.drawable.figma_mirror, 2, "거울을 맞춰 주세요", "먼저 좌석을 몸에 맞추고, 룸미러와 양쪽 사이드미러의 시야를 확인하세요.", {
+                                Page.MIRROR -> Preparation(wide, R.drawable.figma_mirror, 2, "거울을 맞춰 주세요", "먼저 좌석을 몸에 맞추세요.\n룸미러와 양쪽 사이드미러가 잘 보이나요?", {
                                     Link("조절 방법 보기", modifier = Modifier.fillMaxWidth()) { video = R.raw.mirror_help }
                                     Action("잘 보여요", modifier = Modifier.fillMaxWidth()) { c.go(Page.DOORS) }
                                 })
                                 Page.DOORS -> {
-                                    val known = signals.filterKeys { it.startsWith("door:") }
-                                    val full = listOf("ROW_1_LEFT", "ROW_1_RIGHT", "ROW_2_LEFT", "ROW_2_RIGHT").all { "door:$it" in known } && known.values.all { it.fresh(ui.now) }
-                                    val shut = full && known.values.all { it.value == "0" }
-                                    val open = known.entries.filter { it.value.value != "0" && it.value.fresh(ui.now) }.map { doorName(it.key) }
-                                    Preparation(wide, R.drawable.figma_door, 3, if (shut) "문을 모두 닫았어요" else if (open.isNotEmpty()) "열린 곳이 있어요 · ${open.first()}" else "문이 모두 닫혔나요?", if (shut) "출발하기 전, 차 앞뒤와 양옆에 사람이나 장애물이 없는지 살펴보세요." else "문을 닫고 차 앞뒤와 양옆을 살펴보세요.", {
+                                    val doors = departureDoors(signals, ui.now)
+                                    val open = doors.firstOpen?.let(::doorName)
+                                    Preparation(wide, R.drawable.figma_door, 3, if (doors.allClosed) "문을 모두 닫았어요" else if (open != null) "열린 곳이 있어요 · $open" else "문이 모두 닫혔나요?", if (doors.allClosed) "차 앞뒤와 양옆을 살펴보세요.\n사람이나 장애물이 있나요?" else "문을 닫고 차 앞뒤와 양옆을 살펴보세요.", {
                                         Link("와이퍼 사용법", modifier = Modifier.fillMaxWidth()) { video = R.raw.wiper_help }
-                                        Action(if (shut) "코스 보기" else if (open.isNotEmpty()) "열린 문을 닫아 주세요" else "모두 닫혔어요", enabled = open.isEmpty(), modifier = Modifier.fillMaxWidth()) { c.confirmDoors(!shut) }
+                                        val action = when {
+                                            open != null -> "열린 문을 닫아 주세요"
+                                            !doors.allClosed -> "모두 닫혔어요"
+                                            ui.resumePreviewAfterChecks -> "선택한 코스로 돌아가기"
+                                            else -> "코스 보기"
+                                        }
+                                        Action(action, enabled = open == null, modifier = Modifier.fillMaxWidth()) { c.confirmDoors(!doors.allClosed) }
                                     })
                                 }
                                 Page.COURSE -> CourseScreen(ui, signals, wide, c)
@@ -156,7 +161,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 Page.NOTEBOOK -> NotebookScreen(ui, wide, c)
                                 Page.LESSON -> LessonScreen(ui, c)
                                 Page.DIAGNOSTICS -> Diagnostics(signals, c)
-                                Page.GUIDE -> GuideScreen(ui.guideTopic, signals, ui.now, wide, c::openGuideTopic)
+                                Page.GUIDE -> GuideScreen(ui.guideTopic, signals, ui.now, wide, ui.guideReturnPage, c::closeGuide, c::openGuideTopic)
                             }
                         }
                         ui.error?.let { error -> Copy(error, 26, p.blue); if (error.startsWith("기록을 저장") && ui.session != null) Link("다시 저장하기", onClick = c::retrySave) }
@@ -245,7 +250,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             else Spacer(Modifier.height(60.dp))
             FigmaIcon(icon, if (wide) if (icon == R.drawable.figma_warning) 216 else 228 else if (icon == R.drawable.figma_warning) 187 else 195, if (icon == R.drawable.figma_warning) Color(0xFF805619) else p.blue)
             Spacer(Modifier.height(34.dp)); Copy(title, if (wide) 74 else 58, weight = FontWeight.SemiBold, align = TextAlign.Center, modifier = Modifier.widthIn(max = 1080.dp))
-            Spacer(Modifier.height(30.dp)); Copy(body, if (wide) 40 else 34, p.second, align = TextAlign.Center, modifier = Modifier.widthIn(max = 1080.dp))
+            Spacer(Modifier.height(30.dp)); Copy(body, if (wide) 40 else 34, p.second, align = TextAlign.Center, modifier = Modifier.widthIn(max = 1080.dp), style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading))
         }
         Column(Modifier.widthIn(max = 784.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp), content = actions)
     }
@@ -318,7 +323,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         instruction.source + " · 복습 코스"
     val next: @Composable () -> Unit = {
         Copy(subtitle, if (wide) 26 else 23, p.blue, FontWeight.Medium)
-        Copy(instruction.title, if (wide) 58 else 47, p.ink, FontWeight.SemiBold, TextAlign.Center)
+        Copy(instruction.title, if (wide) 58 else 47, p.ink, FontWeight.SemiBold, TextAlign.Center, style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading))
     }
     val tools: @Composable () -> Unit = {
         DriveMotionMeter(signals["speed"])
@@ -459,6 +464,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         if (s != null) {
             VehicleDriveSummary(s)
             PastDriveQuestions(s.id)
+            if (legacy && !s.interrupted && s.passage?.exitMs != null) Link("확인 내용 수정", modifier = Modifier.fillMaxWidth()) { c.go(Page.REVIEW) }
         }
     }
     val records: @Composable ColumnScope.() -> Unit = {
@@ -466,6 +472,9 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             val result = assessments.firstOrNull { it.event.id.substringAfterLast(':') == turn.id }
             Spacer(Modifier.height(14.dp))
             EvidenceCard(practiceTargetLabel(turn.id, s?.practiceRoute ?: CourseCatalog.full), turnSummary(result, s))
+        }
+        if (s != null && !s.interrupted) s.turns.filter { it.exitMs != null }.forEach { event ->
+            Link("${event.direction.label} 답변 수정", modifier = Modifier.fillMaxWidth()) { c.review(event.id) }
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -475,10 +484,6 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         } else Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { summary(); if (!legacy) records() }
         Spacer(Modifier.height(24.dp)); Action(if (a?.mistake == true) "오답노트 보기" else "기록 보기", modifier = Modifier.fillMaxWidth()) { c.go(Page.NOTEBOOK) }
         if (s != null) Action("휴대폰으로 보내기", secondary = true, modifier = Modifier.fillMaxWidth()) { c.go(Page.SHARE) }
-        if (s != null && !s.interrupted) {
-            if (legacy && s.passage?.exitMs != null) Link("확인 내용 수정", modifier = Modifier.fillMaxWidth()) { c.go(Page.REVIEW) }
-            else s.turns.filter { it.exitMs != null }.forEach { event -> Link("${event.direction.label} 답변 수정", modifier = Modifier.fillMaxWidth()) { c.review(event.id) } }
-        }
         Link("다음 연습 준비", modifier = Modifier.fillMaxWidth()) { c.go(Page.COURSE) }
     }
 }
