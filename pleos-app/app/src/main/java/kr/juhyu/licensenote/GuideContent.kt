@@ -12,7 +12,7 @@ internal fun Page.guideReturnLabel() = when (this) {
     Page.WELCOME -> "처음 안내로 돌아가기"
     Page.COURSE -> "연습 코스로 돌아가기"
     Page.RESULT -> "연습 결과로 돌아가기"
-    Page.NOTEBOOK -> "오답노트로 돌아가기"
+    Page.NOTEBOOK -> "연습 기록으로 돌아가기"
     else -> "설명서 닫기"
 }
 

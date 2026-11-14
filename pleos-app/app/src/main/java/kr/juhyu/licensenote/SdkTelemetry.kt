@@ -516,7 +516,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             val destination = RouteInfo(latitude = requestedCourse.finish.lat, longitude = requestedCourse.finish.lon, poiName = requestedCourse.destination, poiId = "", address = "", poiSubId = "")
             val waypoints = requestedCourse.waypoints.mapIndexed { index, point ->
                 val label = requestedCourse.turns.firstOrNull { distanceMeters(it.corner, point) < 1 }?.direction?.label
-                    ?: if (requestedCourse.rulesVersion == 1) "차로 변경" else "경유"
+                    ?: if (requestedCourse.isLanePractice) "차로 변경" else "경유"
                 RequestWaypointInfo(latitude = point.lat, longitude = point.lon, poiName = "$label 검증 지점", waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND, poiId = "", address = "", poiSubId = "")
             }
             if (waypoints.isEmpty()) navigation.requestRoute(destination)

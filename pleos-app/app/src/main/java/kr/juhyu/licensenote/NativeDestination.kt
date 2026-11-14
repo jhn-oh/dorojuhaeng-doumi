@@ -5,7 +5,7 @@ import org.json.JSONObject
 /** The provider supplies a destination point and remaining distance, not a complete route polyline. */
 data class NativeDestination(val name: String, val point: GeoPoint, val meters: Int, val seconds: Int) {
     fun route() = PracticeRoute("native-destination-v1", name, "현재 기본 내비 위치", name,
-        points = listOf(point), turns = emptyList(), rulesVersion = 4, distance = meters,
+        points = listOf(point), turns = emptyList(), distance = meters,
         routingSeconds = seconds.toDouble(), waypoints = emptyList())
     fun samePlace(other: NativeDestination) = name == other.name && distanceMeters(point, other.point) < 25
     fun json() = JSONObject().put("name", name).put("latitude", point.lat).put("longitude", point.lon)

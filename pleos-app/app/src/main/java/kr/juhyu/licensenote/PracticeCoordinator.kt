@@ -15,7 +15,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
 
-enum class Page { WELCOME, BELT, MIRROR, DOORS, COURSE, DRIVING, REVIEW, RESULT, NOTEBOOK, LESSON, DIAGNOSTICS, GUIDE, SHARE }
+enum class Page { WELCOME, BELT, MIRROR, DOORS, COURSE, DRIVING, RESULT, NOTEBOOK, LESSON, DIAGNOSTICS, GUIDE, SHARE }
 enum class CourseStep { LIST, REQUEST, DESTINATION, PREVIEW, UTURN_LESSON, TRAFFIC_LESSON }
 data class PracticeUi(
     val page: Page = Page.WELCOME,
@@ -27,7 +27,6 @@ data class PracticeUi(
     val manualBelt: Boolean = false,
     val manualDoor: Boolean = false,
     val now: Long = SystemClock.elapsedRealtime(),
-    val reviewEventId: String? = null,
     val preflightConfirmed: Boolean = false,
     val resumePreviewAfterChecks: Boolean = false,
     val textScale: Float = 1f,
@@ -127,10 +126,6 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             state.value = state.value.copy(guideTopic = topic)
         }
     }
-    fun review(eventId: String) = dispatch {
-        if (canReview(signals(), SystemClock.elapsedRealtime()) && engine?.session?.turns?.any { it.id == eventId && it.exitMs != null } == true)
-            state.value = state.value.copy(page = Page.REVIEW, reviewEventId = eventId)
-    }
     fun acceptIntro() = dispatch { doAcceptIntro() }
     fun acceptLicensed() = dispatch { doAcceptLicensed() }
     fun confirmBelt(manual: Boolean) = dispatch { doConfirmBelt(manual) }
@@ -152,10 +147,9 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     fun back() = dispatch { doBack() }
     fun start() = dispatch { doStart() }
     fun finish() = dispatch { doFinish() }
-    fun observe(answer: Observation, safetyIssue: Boolean = false) = dispatch { doObserve(answer, safetyIssue) }
     fun setSafetyIssue(reported: Boolean) = dispatch {
         val e = engine ?: return@dispatch
-        if (state.value.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
+        if (!e.session.vehicleReview || state.value.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
         e.setSafetyIssue(reported)
         state.value = state.value.copy(saving = true)
         persist(e.session) { state.value = state.value.copy(session = e.session, assessment = PracticeEvaluator.evaluate(e.session), saving = false) }
@@ -222,7 +216,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             state.value = state.value.copy(page = Page.BELT, manualBelt = false, manualDoor = false, preflightConfirmed = false, resumePreviewAfterChecks = false, error = null)
             return
         }
-        state.value = state.value.copy(page = page, error = null, reviewEventId = if (page == Page.REVIEW) engine?.session?.turns?.firstOrNull { it.exitMs != null }?.id else null)
+        state.value = state.value.copy(page = page, error = null)
     }
     private fun doAcceptIntro() = recordIntro("learner")
     private fun doAcceptLicensed() = recordIntro("licensed")
@@ -275,7 +269,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         go(when (p) {
             Page.DIAGNOSTICS -> pageBeforeDiagnostics
-            Page.NOTEBOOK, Page.REVIEW, Page.SHARE -> Page.RESULT
+            Page.NOTEBOOK, Page.SHARE -> Page.RESULT
             Page.LESSON -> Page.NOTEBOOK
             Page.COURSE -> Page.DOORS
             Page.DOORS -> Page.MIRROR
@@ -320,9 +314,10 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             return
         }
         val route = active?.route() ?: CourseCatalog.find(state.value.selectedRouteId) ?: return
-        val targets = previous?.takeIf { it.rulesVersion >= 2 }?.let(PracticeEvaluator::turnAssessments).orEmpty()
-            .filter { it.mistake }.map { it.event.id.substringAfterLast(':') }.filter { id -> route.turns.any { it.id == id } }
-        val statuses = previous?.let(PracticeEvaluator::turnAssessments).orEmpty().filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
+        val previousTurns = previous?.takeIf { it.rulesVersion >= 2 }?.let(PracticeEvaluator::turnAssessments).orEmpty()
+        val targets = previousTurns.filter { it.practiceSuggested }.map { it.event.id.substringAfterLast(':') }
+            .filter { id -> route.turns.any { it.id == id } }
+        val statuses = previousTurns.filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
         engine = PracticeEngine(PracticeSession(courseId = route.id, courseVersion = route.version, rulesVersion = route.rulesVersion, startedAtMs = now, startedWallMs = System.currentTimeMillis(), manualDoor = state.value.manualDoor, manualBelt = state.value.manualBelt, expectedDoors = doors, dataGap = !turnReady,
             evidenceGaps = if (turnReady) emptyList() else listOf(EvidenceGap(now, now)),
             practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active))
@@ -342,21 +337,13 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         context.startService(Intent(context, TelemetryService::class.java).setAction("STOP_RECORD"))
         state.value = state.value.copy(saving = true)
         persist(e.session) {
-            val page = if (e.session.passage?.exitMs != null || e.session.turns.any { it.exitMs != null }) Page.REVIEW else Page.RESULT
-            state.value = state.value.copy(page = page, session = e.session, assessment = PracticeEvaluator.evaluate(e.session), saving = false, reviewEventId = e.session.turns.firstOrNull { it.exitMs != null }?.id)
+            state.value = state.value.copy(page = Page.RESULT, session = e.session, assessment = PracticeEvaluator.evaluate(e.session), saving = false)
         }
-    }
-    private fun doObserve(answer: Observation, safetyIssue: Boolean = false) {
-        val e = engine ?: return
-        if (state.value.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return
-        e.observe(answer, safetyIssue, state.value.reviewEventId)
-        state.value = state.value.copy(saving = true)
-        persist(e.session) { state.value = state.value.copy(page = if (e.session.phase == SessionPhase.REVIEW) Page.REVIEW else Page.RESULT, session = e.session, assessment = PracticeEvaluator.evaluate(e.session), saving = false, reviewEventId = e.session.turns.firstOrNull { it.exitMs != null && it.observation == Observation.UNANSWERED }?.id) }
     }
     private fun doRecommend() {
         val e = engine ?: return
-        if (!PracticeEvaluator.evaluate(e.session).mistake || state.value.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return
-        if (e.session.rulesVersion < 2) { doGo(Page.COURSE); return }
+        if (!PracticeEvaluator.evaluate(e.session).practiceSuggested || state.value.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return
+        if (!e.session.vehicleReview) { doGo(Page.BELT); return }
         e.session = e.session.copy(nextPractice = true, revision = e.session.revision + 1)
         state.value = state.value.copy(saving = true)
         persist(e.session) { state.value = state.value.copy(page = Page.BELT, session = e.session, assessment = PracticeEvaluator.evaluate(e.session), preflightConfirmed = false, manualBelt = false, manualDoor = false, saving = false) }
@@ -365,7 +352,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         val e = engine ?: return
         state.value = state.value.copy(saving = true, error = null)
         persist(e.session) {
-            val page = if (e.session.phase == SessionPhase.RECORDING) Page.DRIVING else if (e.session.phase == SessionPhase.REVIEW && (e.session.passage?.exitMs != null || e.session.turns.any { it.exitMs != null })) Page.REVIEW else Page.RESULT
+            val page = if (e.session.phase == SessionPhase.RECORDING) Page.DRIVING else Page.RESULT
             state.value = state.value.copy(page = page, session = e.session, assessment = PracticeEvaluator.evaluate(e.session), saving = false)
         }
     }
@@ -383,8 +370,8 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     private fun exportReport(session: PracticeSession) {
         if (!BuildConfig.DEBUG) return
         val a = PracticeEvaluator.evaluate(session)
-        val report = store.metadata(session).put("assessment", JSONObject().put("status", a.status).put("score", a.score ?: JSONObject.NULL).put("checked", a.checked).put("mistake", a.mistake).put("reason", a.reason))
-            .put("turnAssessments", org.json.JSONArray(PracticeEvaluator.turnAssessments(session).map { result -> JSONObject().put("eventId", result.event.id).put("direction", result.event.direction.name).put("status", result.status).put("mistake", result.mistake).put("reason", result.reason) }))
+        val report = store.metadata(session).put("assessment", JSONObject().put("status", a.status).put("score", a.score ?: JSONObject.NULL).put("checked", a.checked).put("mistake", a.mistake).put("practiceSuggested", a.practiceSuggested).put("reason", a.reason))
+            .put("turnAssessments", org.json.JSONArray(PracticeEvaluator.turnAssessments(session).map { result -> JSONObject().put("eventId", result.event.id).put("direction", result.event.direction.name).put("status", result.status).put("mistake", result.mistake).put("practiceSuggested", result.practiceSuggested).put("reason", result.reason) }))
             .put("targetOutcomes", org.json.JSONArray(practiceTargetOutcomes(session).map { outcome -> JSONObject().put("courseTurnId", outcome.courseTurnId).put("label", outcome.label).put("previousStatus", outcome.previousStatus ?: JSONObject.NULL).put("currentStatus", outcome.currentStatus) }))
         File(context.filesDir, "last-report.json").writeText(report.toString(2))
     }

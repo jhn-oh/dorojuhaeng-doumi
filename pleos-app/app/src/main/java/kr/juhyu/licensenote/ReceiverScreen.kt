@@ -106,7 +106,12 @@ private val cancelWorker = Executors.newSingleThreadExecutor()
                 else -> {
                     FigmaIcon(R.drawable.figma_back, 195, p.blue, assetOverride = "phone")
                     Copy("연습 기록을 보낼까요?", 58, weight = FontWeight.SemiBold, align = TextAlign.Center)
-                    Copy("점수와 확인한 항목, 오답을 함께 보내요.", 34, p.second, align = TextAlign.Center)
+                    val contents = when {
+                        !session.vehicleReview -> "지난 연습 결과와 복습 내용을 함께 보내요."
+                        session.practiceRoute.turns.isEmpty() -> "이번 코스와 연습 시간, 차량 기록을 보내요."
+                        else -> "이번 코스와 구간별 깜빡이 기록을 보내요."
+                    }
+                    Copy(contents, 34, p.second, align = TextAlign.Center)
                 }
             }
             if (error.isNotEmpty()) Copy(error, 28, p.blue)

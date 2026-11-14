@@ -36,7 +36,8 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
             Copy("시간과 연습할 동작을 보고 골라 보세요.", if (wide) 40 else 34, p.second)
             Spacer(Modifier.height(if (wide) 32.dp else 8.dp))
             recommendation?.let {
-                CourseCard("지난 오답 다시 연습", "${it.name} · ${it.stats}", Modifier.fillMaxWidth(), true) { c.previewCourse(it) }
+                val label = if (ui.session?.vehicleReview == true) "지난 깜빡이 기록 다시 연습" else "지난 오답 다시 연습"
+                CourseCard(label, "${it.name} · ${it.stats}", Modifier.fillMaxWidth(), ui.selectedRouteId == it.id) { c.previewCourse(it) }
             }
             val choices = listOf("기본 도로주행" to CourseCatalog.full, "우회전 연습" to CourseCatalog.right,
                 "유턴 연습" to null, "혼잡한 도로" to null, "좌회전 연습" to CourseCatalog.left, "차로 변경 연습" to CourseCatalog.lane)

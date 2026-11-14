@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
@@ -155,7 +156,6 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 }
                                 Page.COURSE -> CourseScreen(ui, signals, wide, c)
                                 Page.DRIVING -> DrivingScreen(ui, signals, wide, parked, c)
-                                Page.REVIEW -> ReviewScreen(ui, wide, c)
                                 Page.RESULT -> ResultScreen(ui, wide, c)
                                 Page.SHARE -> ui.session?.let { ReceiverScreen(it, c::back) }
                                 Page.NOTEBOOK -> NotebookScreen(ui, wide, c)
@@ -219,7 +219,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         AlertDialog(
             onDismissRequest = { confirmIssue = false },
             title = { Copy(if (reported) "안전 문제 기록을 취소할까요?" else "이번 연습에 안전 문제가 있었나요?", 36, weight = FontWeight.SemiBold) },
-            text = { Copy(if (reported) "저장한 답변과 차량 기록으로 다시 평가해요." else "안전 문제를 기록하면 이번 연습의 평가를 보류해요. 동승자가 남긴 답변은 보관해요.", 28) },
+            text = { Copy(if (reported) "저장한 차량 기록으로 복습을 다시 열어요." else "이번 연습의 복습을 보류하고 차량 기록은 보관해요.", 28) },
             confirmButton = { Link(if (reported) "기록 취소" else "안전 문제 기록", !ui.saving) { confirmIssue = false; c.setSafetyIssue(!reported) } },
             dismissButton = { Link("돌아가기") { confirmIssue = false } },
         )
@@ -227,7 +227,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     Row(Modifier.fillMaxWidth().heightIn(min = 83.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             if (ui.page !in setOf(Page.WELCOME, Page.DRIVING, Page.RESULT)) IconButton(onClick = c::back, enabled = parked, modifier = Modifier.size(76.dp).semantics { contentDescription = "뒤로" }) { FigmaIcon(R.drawable.figma_back, 64, LocalPalette.current.second) }
-            Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.REVIEW -> "주차 후 확인"; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> "오답노트"; Page.LESSON -> if (ui.session?.rulesVersion == 1) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
+            Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> if (ui.session?.vehicleReview == true) "주행 복습" else "오답노트"; Page.LESSON -> if (ui.session?.practiceRoute?.isLanePractice == true) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (canChangeText && ui.page.hasGuideEntry()) Link("설명서", onClick = c::openGuide)
@@ -235,7 +235,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             when (ui.page) {
                 Page.WELCOME -> Link("면허와 표지", parked, onClick = onLegal)
                 Page.BELT, Page.MIRROR, Page.DOORS -> Copy("${ui.page.ordinal} / 3", 34, LocalPalette.current.blue, FontWeight.SemiBold)
-                Page.REVIEW, Page.RESULT -> Link(if (reported) "안전 문제 수정" else "안전 문제", parked && !ui.saving && ui.session != null) { confirmIssue = true }
+                Page.RESULT -> if (ui.session?.vehicleReview == true) Link(if (reported) "안전 문제 수정" else "안전 문제", parked && !ui.saving && ui.session != null) { confirmIssue = true }
                 else -> if (ui.page != Page.GUIDE && BuildConfig.DEBUG && parked) Link("SDK", onClick = c::diagnostics)
             }
         }
@@ -281,13 +281,13 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             Copy(route.name, if (wide) 74 else 58, weight = FontWeight.SemiBold)
             Spacer(Modifier.height(20.dp))
             Copy(route.exercises, 34, p.second)
-            if (recommendation == route) EvidenceCard("이번 연습 목표", "지난번 놓친 깜빡이를 미리 켜 보세요.")
+            if (recommendation == route) EvidenceCard("이번 연습 목표", "지난번과 같은 구간에서 회전 방향의 깜빡이 기록을 비교해 보세요.")
             Spacer(Modifier.height(32.dp))
             Copy("${route.distance} m   약 ${route.minutes}분", 58, p.blue, FontWeight.SemiBold)
             Copy(if (route.verifiedArterial) "Valhalla 자동차 경로 예상 · 실시간 교통 미반영" else if (route.routingSeconds != null) "OSRM 자동차 경로 예상 · 실시간 교통 미반영" else "모의 주행 속도 15 km/h 기준", 26, p.muted)
             if (route.verifiedArterial) Copy("편도 차로 수는 국가교통정보센터 표준링크 자료와 대조했어요. 기본 내비에서 다른 길로 안내하면 이 조건을 다시 확인하세요.", 26, p.second)
             Copy("${route.departure} → ${route.destination}", 30, p.second)
-            Copy(if (route.rulesVersion == 1) "에뮬레이터 전용 가상 구간이에요." else "에뮬레이터용 코스 · 실제 도로 통행 조건 미확인", 26, p.muted)
+            Copy(if (route.isLanePractice) "에뮬레이터 전용 가상 구간이에요." else "에뮬레이터용 코스 · 실제 도로 통행 조건 미확인", 26, p.muted)
             Spacer(Modifier.height(20.dp))
             Copy(if (route.waypoints.isEmpty()) "시작하면 기본 내비의 기존 목적지를 이 도착점으로 변경해요." else "시작하면 기본 내비의 기존 경로를 경유지 ${route.waypoints.size}곳과 이 목적지로 변경해요.", 28, p.second)
         }
@@ -385,51 +385,18 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     Copy(label, 26, LocalPalette.current.second)
 }
 
-@Composable private fun ReviewScreen(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator) {
-    val p = LocalPalette.current; val s = ui.session
-    val legacy = s?.rulesVersion == 1
-    val completed = s?.turns.orEmpty().filter { it.exitMs != null }
-    val event = completed.firstOrNull { it.id == ui.reviewEventId } ?: completed.firstOrNull { it.observation == Observation.UNANSWERED } ?: completed.firstOrNull()
-    val direction = event?.direction?.label ?: "회전"
-    val entryMs = (if (legacy) s?.passage?.entryMs else event?.entryMs) ?: s?.startedAtMs ?: 0
-    val at = (s?.startedWallMs ?: 0) + entryMs - (s?.startedAtMs ?: 0)
-    val time = SimpleDateFormat("H시 mm분", Locale.KOREA).format(Date(at))
-    val scroll = key(event?.id) { rememberScrollState() }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.weight(1f).verticalScroll(scroll).padding(top = 20.dp)) {
-            val place = event?.let { practiceTargetLabel(it.id.substringAfterLast(':'), s?.practiceRoute ?: CourseCatalog.full) }
-            Copy(listOfNotNull(place, time).joinToString(" · "), 29, p.blue, FontWeight.Medium)
-            Spacer(Modifier.height(16.dp))
-            Copy(if (legacy) "왼쪽 차로로 옮겼나요?" else "여기서 ${direction}했나요?", if (wide) 66 else 54, weight = FontWeight.SemiBold)
-            Spacer(Modifier.height(20.dp))
-            Copy("동승자가 본 대로 골라 주세요. 기억이 안 나면 ‘보지 못했어요’를 눌러 주세요.", 30, p.second)
-            if (!legacy) { Spacer(Modifier.height(20.dp)); Copy("조향·위치로 추정한 구간", 26, p.muted) }
-            Spacer(Modifier.height(24.dp))
-            val from = (if (legacy) s?.passage?.entryMs else event?.entryMs) ?: 0
-            val until = (if (legacy) s?.passage?.exitMs else event?.exitMs) ?: from
-            val turns = s?.samples?.filter { it.key == "turn" && it.atMs in from..until }.orEmpty()
-            val values = turns.filter { it.quality == "VALID" }.mapNotNull {
-                when (it.value) { "OFF" -> "꺼짐"; "LEFT" -> "왼쪽 켜짐"; "RIGHT" -> "오른쪽 켜짐"; else -> null }
-            }.distinct()
-            val label = if (values.isEmpty()) "깜빡이 값 없음" else "받은 깜빡이 값 · " + values.joinToString(", ")
-            EvidenceCard("구간 안에서 받은 차량 기록", listOf(label, turnEvidence(event)).filter { it.isNotEmpty() }.joinToString("\n"))
-        }
-        Column(Modifier.widthIn(max = 1000.dp).fillMaxWidth().align(Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Action(if (legacy) "왼쪽으로 바꿨어요" else "${direction}했어요", !ui.saving, modifier = Modifier.fillMaxWidth()) { c.observe(if (legacy) Observation.LEFT else Observation.CONFIRMED) }
-            Action(if (legacy) "왼쪽으로 바꾸지 않았어요" else "${direction}하지 않았어요", !ui.saving, secondary = true, modifier = Modifier.fillMaxWidth()) { c.observe(if (legacy) Observation.NOT_LEFT else Observation.NOT_PERFORMED) }
-            Link("보지 못했어요", !ui.saving, Modifier.fillMaxWidth()) { c.observe(Observation.UNSEEN) }
-        }
-    }
-}
-
 @Composable private fun ResultScreen(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator) {
     val p = LocalPalette.current; val a = ui.assessment ?: ui.session?.let(PracticeEvaluator::evaluate)
     val s = ui.session
+    if (s?.vehicleReview == true && a != null) {
+        VehicleResultScreen(s, a, wide, ui.saving, c)
+        return
+    }
     val legacy = s?.rulesVersion == 1
     val assessments = s?.let(PracticeEvaluator::turnAssessments).orEmpty()
     val comparisons = s?.let(::practiceTargetOutcomes).orEmpty()
     val summary: @Composable ColumnScope.() -> Unit = {
-        Copy(s?.practiceRoute?.name ?: "연습 기록", 28, p.second)
+        Copy("이전 방식의 연습 · " + (s?.practiceRoute?.name ?: "연습 기록"), 28, p.second)
         Spacer(Modifier.height(18.dp))
         s?.endedAtMs?.let { end ->
             val seconds = ((end - s.startedAtMs) / 1000).coerceAtLeast(0)
@@ -464,7 +431,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         if (s != null) {
             VehicleDriveSummary(s)
             PastDriveQuestions(s.id)
-            if (legacy && !s.interrupted && s.passage?.exitMs != null) Link("확인 내용 수정", modifier = Modifier.fillMaxWidth()) { c.go(Page.REVIEW) }
+            if (legacy && s.passage?.exitMs != null) SavedObservations(s)
         }
     }
     val records: @Composable ColumnScope.() -> Unit = {
@@ -473,9 +440,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             Spacer(Modifier.height(14.dp))
             EvidenceCard(practiceTargetLabel(turn.id, s?.practiceRoute ?: CourseCatalog.full), turnSummary(result, s))
         }
-        if (s != null && !s.interrupted) s.turns.filter { it.exitMs != null }.forEach { event ->
-            Link("${event.direction.label} 답변 수정", modifier = Modifier.fillMaxWidth()) { c.review(event.id) }
-        }
+        if (s != null && s.turns.any { it.exitMs != null }) SavedObservations(s)
     }
     Column(Modifier.fillMaxSize()) {
         if (wide) Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
@@ -488,12 +453,94 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     }
 }
 
+@Composable private fun SavedObservations(session: PracticeSession) {
+    var open by rememberSaveable(session.id) { mutableStateOf(false) }
+    Link(if (open) "이전 확인 내용 닫기" else "이전 확인 내용 보기") { open = !open }
+    if (open) {
+        val notes = if (session.rulesVersion == 1) listOf("차로 변경 · " + archivedAnswer(session.observation))
+        else session.turns.filter { it.exitMs != null }.map { event ->
+            practiceTargetLabel(event.id.substringAfterLast(':'), session.practiceRoute) + " · " + archivedAnswer(event.observation)
+        }
+        EvidenceCard("당시 저장한 답변", notes.joinToString("\n"))
+    }
+}
+
+private fun archivedAnswer(answer: Observation): String = when (answer) {
+    Observation.LEFT -> "왼쪽으로 옮겼어요"
+    Observation.NOT_LEFT -> "왼쪽으로 옮기지 않았어요"
+    Observation.CONFIRMED -> "회전했어요"
+    Observation.NOT_PERFORMED -> "회전하지 않았어요"
+    Observation.UNSEEN -> "보지 못했어요"
+    Observation.UNANSWERED -> "저장된 답변 없음"
+}
+
+/** New sessions open straight to the captured signals. The details page carries the longer evidence. */
+@Composable private fun VehicleResultScreen(s: PracticeSession, a: Assessment, wide: Boolean, saving: Boolean, c: PracticeCoordinator) {
+    val p = LocalPalette.current
+    val results = remember(s) { PracticeEvaluator.turnAssessments(s) }
+    val comparisons = remember(s) { practiceTargetOutcomes(s).associateBy { it.courseTurnId } }
+    val repeat = repeatPracticeLabel(results).takeIf { a.practiceSuggested }
+    val summary: @Composable () -> Unit = {
+        val seconds = s.endedAtMs?.let { ((it - s.startedAtMs) / 1000).coerceAtLeast(0) }
+        Copy(listOfNotNull(s.practiceRoute.name, seconds?.let { "${it / 60}분 ${it % 60}초" }).joinToString(" · "), 28, p.second)
+        Spacer(Modifier.height(20.dp))
+        Copy(a.title, if (wide) 60 else 48, p.navy, FontWeight.SemiBold, style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading))
+        Spacer(Modifier.height(12.dp))
+        Copy(a.reason, if (wide) 32 else 28, p.second, style = LocalTextStyle.current.copy(lineBreak = LineBreak.Paragraph))
+    }
+    val segments: @Composable () -> Unit = {
+        s.practiceRoute.turns.forEach { turn ->
+            val result = results.firstOrNull { it.event.id.endsWith(":${turn.id}") }
+            val prior = comparisons[turn.id]?.previousStatus
+            val label = practiceTargetLabel(turn.id, s.practiceRoute)
+            Column(Modifier.fillMaxWidth().background(p.light, RoundedCornerShape(22.dp)).padding(horizontal = 28.dp, vertical = 20.dp)) {
+                Copy(label, 26, p.blue, FontWeight.Medium)
+                Copy(signalReading(result?.status, turn.direction), if (wide) 39 else 32, p.ink, FontWeight.SemiBold)
+                if (prior != null) Copy("지난번 · " + signalReading(prior, turn.direction), 24, p.second)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        if (wide && s.practiceRoute.turns.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { summary() }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { segments() }
+            }
+        } else Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+            summary()
+            if (s.practiceRoute.turns.isNotEmpty()) {
+                Spacer(Modifier.height(22.dp))
+                segments()
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Action(repeat ?: "다음 연습 준비", enabled = !saving, modifier = Modifier.fillMaxWidth()) {
+            if (repeat != null) c.recommend() else c.go(Page.BELT)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Link("차량 기록 보기", modifier = Modifier.weight(1f)) { c.go(Page.NOTEBOOK) }
+            Link("휴대폰으로 보내기", modifier = Modifier.weight(1f)) { c.go(Page.SHARE) }
+        }
+    }
+}
+
+private fun signalReading(status: String?, direction: TurnDirection): String {
+    val side = if (direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"
+    return when (status) {
+        "OBSERVED" -> "$side 켜짐 기록"
+        "SIGNAL_ABSENT", "OMISSION" -> "$side 켜짐 기록 없음"
+        "HELD" -> "신호 판단 보류"
+        else -> "구간 기록 없음"
+    }
+}
+
 private fun statusLabel(status: String?): String = when (status) {
     "OMISSION" -> "깜빡이가 계속 꺼져 있었어요"
     "OBSERVED" -> "회전 방향 깜빡이를 켠 기록이 있어요"
     "NO_TURN" -> "회전하지 않았다고 답했어요"
     "NO_OPPORTUNITY" -> "확인할 회전 기록이 없어요"
-    "UNANSWERED" -> "동승자 답변 대기"
+    "UNANSWERED" -> "저장된 답변 없음"
     "HELD" -> "미평가"
     else -> "확인할 기록이 없어요"
 }
@@ -504,7 +551,7 @@ private fun turnSummary(result: TurnAssessment?, session: PracticeSession?): Str
     if (result.status != "HELD") return statusLabel(result.status)
     return when {
         event.observation == Observation.UNSEEN -> "동승자가 보지 못해 미평가"
-        event.observation == Observation.UNANSWERED -> "동승자 답변 대기"
+        event.observation == Observation.UNANSWERED -> "당시 답변이 저장되지 않았어요"
         session?.safetyIssue == true -> "안전 문제로 미평가"
         session?.interrupted == true -> "기록이 중단돼 미평가"
         else -> result.reason
@@ -515,7 +562,7 @@ private fun turnSummary(result: TurnAssessment?, session: PracticeSession?): Str
     Column(Modifier.fillMaxWidth().background(p.light, RoundedCornerShape(27.dp)).padding(30.dp)) { Copy(label, 28, p.blue, FontWeight.Medium); Spacer(Modifier.height(24.dp)); Copy(body, 32) }
 }
 private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
-    val directions = results.filter { it.mistake }.map { it.event.direction }.distinct()
+    val directions = results.filter { it.practiceSuggested }.map { it.event.direction }.distinct()
     return when (directions.size) {
         0 -> null
         1 -> "${directions.single().label} 다시 연습"
@@ -525,6 +572,10 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
 
 @Composable private fun NotebookScreen(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator) {
     val p = LocalPalette.current; val a = ui.assessment; val s = ui.session
+    if (s?.vehicleReview == true) {
+        VehicleNotebook(s, wide, ui.saving, c)
+        return
+    }
     val legacy = s?.rulesVersion == 1
     val turns = s?.let(PracticeEvaluator::turnAssessments).orEmpty()
     Column(Modifier.fillMaxSize()) {
@@ -542,7 +593,7 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
                     Observation.CONFIRMED -> "동승자 · ${course.direction.label}했어요"
                     Observation.NOT_PERFORMED -> "동승자 · ${course.direction.label}하지 않았어요"
                     Observation.UNSEEN -> "동승자 · 보지 못했어요"
-                    Observation.UNANSWERED -> "동승자 · 아직 답하지 않았어요"
+                    Observation.UNANSWERED -> "당시 저장된 답변 없음"
                     else -> null
                 }
                 val detail = when (result?.status) {
@@ -562,6 +613,41 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
         val repeatLabel = if (legacy && a?.mistake == true) "차로 변경 다시 연습" else repeatPracticeLabel(turns)
         if (repeatLabel != null) Link(repeatLabel, !ui.saving, Modifier.fillMaxWidth(), onClick = c::recommend)
         else Link("다음 연습 준비", modifier = Modifier.fillMaxWidth()) { c.go(Page.BELT) }
+    }
+}
+
+@Composable private fun VehicleNotebook(s: PracticeSession, wide: Boolean, saving: Boolean, c: PracticeCoordinator) {
+    val p = LocalPalette.current
+    val results = remember(s) { PracticeEvaluator.turnAssessments(s) }
+    val a = remember(s) { PracticeEvaluator.evaluate(s) }
+    val repeat = repeatPracticeLabel(results).takeIf { a.practiceSuggested }
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Copy(s.practiceRoute.name, 28, p.second)
+            Copy(if (s.practiceRoute.turns.isEmpty()) "이번 차량 기록" else "구간별 깜빡이 기록",
+                if (wide) 58 else 46, p.navy, FontWeight.SemiBold)
+            if (s.practiceRoute.turns.isEmpty()) Copy(a.reason, 30, p.second)
+            else {
+                Copy("위치와 조향으로 회전 구간을 추정했어요.", 28, p.second)
+                for (turn in s.practiceRoute.turns) {
+                    val result = results.firstOrNull { it.event.id.endsWith(":${turn.id}") }
+                    val evidence = result?.event?.let(::turnEvidence).orEmpty()
+                    val detail = listOfNotNull(
+                        result?.reason ?: "이 구간에서 위치와 조향이 일치하는 기록을 찾지 못했어요.",
+                        evidence.takeIf { it.isNotBlank() }
+                    ).joinToString("\n")
+                    EvidenceCard(practiceTargetLabel(turn.id, s.practiceRoute), detail)
+                }
+            }
+            VehicleDriveSummary(s)
+            PastDriveQuestions(s.id)
+            if (repeat != null) Link("회전 연습 방법 보기", modifier = Modifier.fillMaxWidth()) { c.go(Page.LESSON) }
+            PreviousPracticeList(s.id, c)
+        }
+        Spacer(Modifier.height(18.dp))
+        Action(repeat ?: "다음 연습 준비", !saving, modifier = Modifier.fillMaxWidth()) {
+            if (repeat != null) c.recommend() else c.go(Page.BELT)
+        }
     }
 }
 @Composable private fun PreviousPracticeList(currentId: String, coordinator: PracticeCoordinator) {

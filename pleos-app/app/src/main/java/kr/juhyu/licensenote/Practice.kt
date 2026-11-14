@@ -19,6 +19,7 @@ object PracticeCourse {
     val points = listOf(start, turns[0].corner, GeoPoint(37.4847141, 127.0304318), turns[1].corner, GeoPoint(37.4852267, 127.0295627), finish)
 }
 object LegacyLaneCourse {
+    const val id = "yangjae-lane-sim-01"
     val start = GeoPoint(37.48200, 127.03300)
     val entry = GeoPoint(37.48260, 127.03300)
     val exit = GeoPoint(37.48320, 127.03300)
@@ -34,7 +35,9 @@ data class TurnEvent(
     val evidenceReason: String? = null,
     val evidenceStatus: String = "PENDING",
 )
-data class TurnAssessment(val event: TurnEvent, val status: String, val mistake: Boolean, val reason: String)
+data class TurnAssessment(val event: TurnEvent, val status: String, val mistake: Boolean, val reason: String) {
+    val practiceSuggested get() = mistake || status == "SIGNAL_ABSENT"
+}
 data class TargetOutcome(val courseTurnId: String, val label: String, val previousStatus: String?, val currentStatus: String)
 
 data class RecordedSignal(val atMs: Long, val key: String, val value: String?, val quality: String, val source: String, val origin: String)
@@ -69,7 +72,10 @@ data class PracticeSession(
     val previousTargetStatuses: Map<String, String> = emptyMap(),
     val nativeDestination: NativeDestination? = null,
 )
-data class Assessment(val status: String, val score: Int?, val checked: Int, val mistake: Boolean, val title: String, val reason: String)
+internal const val VEHICLE_REVIEW_RULES = 5
+val PracticeSession.vehicleReview get() = rulesVersion >= VEHICLE_REVIEW_RULES
+data class Assessment(val status: String, val score: Int?, val checked: Int, val mistake: Boolean, val title: String,
+                      val reason: String, val practiceSuggested: Boolean = mistake)
 
 fun practiceTargetLabel(id: String, route: PracticeRoute = CourseCatalog.full): String {
     val index = route.turns.indexOfFirst { it.id == id }
@@ -79,7 +85,7 @@ fun practiceTargetLabel(id: String, route: PracticeRoute = CourseCatalog.full): 
 }
 fun practiceTargetIds(s: PracticeSession): List<String> = when {
     s.rulesVersion < 2 -> emptyList()
-    s.nextPractice -> PracticeEvaluator.turnAssessments(s).filter { it.mistake }.map { it.event.id.substringAfterLast(':') }
+    s.nextPractice -> PracticeEvaluator.turnAssessments(s).filter { it.practiceSuggested }.map { it.event.id.substringAfterLast(':') }
     else -> s.practiceTargets
 }
 fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
@@ -87,7 +93,7 @@ fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
     return s.practiceTargets.map { id ->
         val result = results.firstOrNull { it.event.id.endsWith(":$id") }
         TargetOutcome(id, practiceTargetLabel(id, s.practiceRoute), s.previousTargetStatuses[id],
-            if (result?.event?.observation == Observation.UNANSWERED) "UNANSWERED" else result?.status ?: "NO_OPPORTUNITY")
+            if (!s.vehicleReview && result?.event?.observation == Observation.UNANSWERED) "UNANSWERED" else result?.status ?: "NO_OPPORTUNITY")
     }
 }
 
@@ -122,7 +128,10 @@ fun distanceMeters(a: GeoPoint, b: GeoPoint): Double {
 fun locationPoint(signal: Signal?, now: Long): GeoPoint? {
     if (!signal.fresh(now, 3000)) return null
     if (signal?.origin == "LAST_KNOWN") return null
-    val v = signal?.value?.split(',') ?: return null
+    return locationPoint(signal?.value?.split(',') ?: return null)
+}
+
+private fun locationPoint(v: List<String>): GeoPoint? {
     val lat = v.getOrNull(0)?.toDoubleOrNull() ?: return null
     val lon = v.getOrNull(1)?.toDoubleOrNull() ?: return null
     if (!lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
@@ -179,7 +188,8 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
             val s = signals[key]
             // Registration is a state transition, unlike the periodically read vehicle measurements.
             val ready = key.endsWith("_subscription") && s?.quality == "VALID" && s.value == "READY"
-            RecordedSignal(now, key, s?.value, if (ready || s.fresh(now)) "VALID" else "UNAVAILABLE", s?.source ?: "unavailable", s?.origin ?: "")
+            val valid = if (session.vehicleReview && key == "location") locationPoint(s, now) != null else ready || s.fresh(now)
+            RecordedSignal(now, key, s?.value, if (valid) "VALID" else "UNAVAILABLE", s?.source ?: "unavailable", s?.origin ?: "")
         }
         session = session.copy(samples = if (session.samples.size < 50_000) session.samples + next else session.samples, dataGap = session.dataGap || gap)
         updatePosition(signals, now)
@@ -206,11 +216,11 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
             return
         }
         val moving = signals["speed"].fresh(now) && (signals["speed"]?.value?.toDoubleOrNull() ?: 0.0) > 0.5
-        if (session.rulesVersion >= 2) {
+        if (session.rulesVersion >= 2 && session.courseId != LegacyLaneCourse.id) {
             updateTurns(signals, point, moving, now)
             return
         }
-        if (!moving || !headingNorth) return
+        if (!moving || !headingNorth || (session.vehicleReview && (!signals["gear"].fresh(now) || signals["gear"]?.value != "8"))) return
         if (session.passage == null && distanceMeters(point, LegacyLaneCourse.entry) < 18) {
             session = session.copy(passage = Passage("${session.id}:lane-01", now))
         } else if (session.passage?.exitMs == null && session.passage != null && distanceMeters(point, LegacyLaneCourse.exit) < 18 && now - session.passage!!.entryMs >= 2000) {
@@ -264,24 +274,25 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
         // A final snapshot belongs to the actual end, even if the last periodic tick just ran.
         lastTick = now - 1000
         tick(signals, now)
-        val phase = if (session.nativeDestination != null) SessionPhase.COMPLETE else SessionPhase.REVIEW
+        val phase = if (session.vehicleReview || session.nativeDestination != null) SessionPhase.COMPLETE else SessionPhase.REVIEW
         session = session.copy(endedAtMs = now, phase = phase)
         return true
     }
 
     fun observe(answer: Observation, safetyIssue: Boolean = false, eventId: String? = null) {
+        if (session.vehicleReview) return
         check(session.phase != SessionPhase.RECORDING)
         val unanswered = session.turns.firstOrNull { it.exitMs != null && it.observation == Observation.UNANSWERED }
         val target = session.turns.firstOrNull { it.id == eventId && it.exitMs != null } ?: unanswered ?: session.turns.firstOrNull { it.exitMs != null }
         val turns = if (session.rulesVersion >= 2 && target != null) session.turns.map { if (it.id == target.id) it.copy(observation = answer) else it } else session.turns
         val pending = session.rulesVersion >= 2 && turns.any { it.exitMs != null && it.observation == Observation.UNANSWERED }
         val updated = session.copy(observation = answer, turns = turns, safetyIssue = session.safetyIssue || safetyIssue, phase = if (pending) SessionPhase.REVIEW else SessionPhase.COMPLETE, revision = session.revision + 1)
-        session = updated.copy(nextPractice = updated.nextPractice && PracticeEvaluator.evaluate(updated).mistake)
+        session = updated.copy(nextPractice = updated.nextPractice && PracticeEvaluator.evaluate(updated).practiceSuggested)
     }
 
     fun setSafetyIssue(reported: Boolean) {
         val updated = session.copy(safetyIssue = reported, revision = session.revision + 1)
-        session = updated.copy(nextPractice = updated.nextPractice && PracticeEvaluator.evaluate(updated).mistake)
+        session = updated.copy(nextPractice = updated.nextPractice && PracticeEvaluator.evaluate(updated).practiceSuggested)
     }
 }
 
@@ -292,6 +303,7 @@ object PracticeEvaluator {
             values.all { it.quality == "VALID" && predicate(it.value) } && values.zipWithNext().all { (a, b) -> b.atMs - a.atMs <= 2500 }
     }
     fun evaluate(s: PracticeSession): Assessment {
+        if (s.vehicleReview) return evaluateVehicleReview(s)
         if (s.nativeDestination != null) return if (s.interrupted || s.safetyIssue)
             Assessment("HELD", null, 0, false, "중단한 목적지 연습", "중단이나 안전 문제로 여기까지의 차량 기록을 보관했어요.")
         else Assessment("DESTINATION_PRACTICE", null, 0, false, "목적지까지 연습 기록", "기본 내비가 안내한 목적지와 차량 기록을 보관했어요.")
@@ -322,14 +334,67 @@ object PracticeEvaluator {
         val gear = s.samples.lastOrNull { it.key == "gear" && it.atMs == end }
         val parked = gear?.quality == "VALID" && gear.value == "4"
         if (!doorsCovered || !parked) return held("문 상태 또는 종료 시 P단을 자동으로 확인한 근거가 부족해요.")
-        val unbuckledInMotion = s.samples.any { sample ->
-            sample.key == "belt" && sample.quality == "VALID" && sample.value == "false" &&
-                s.samples.any { it.key == "speed" && it.atMs == sample.atMs && it.quality == "VALID" && abs(it.value?.toDoubleOrNull() ?: 0.0) > 0.5 }
-        }
+        val unbuckledInMotion = unbuckledWhileMoving(s)
         if (unbuckledInMotion) return Assessment("HELD", null, 3, true, "이번 점수는 보류했어요", "주행 중 벨트 미착용 신호를 받았어요. 확인한 차로 변경 기록은 오답노트에 남겼어요.")
         val penalty = 7 // Version 1: criterion 30 with corroborated lane direction and signal coverage.
         val score = 100 - penalty
         return Assessment("SCORED", score, 3, true, "${score}점", "동승자가 왼쪽 변경을 확인했고, 구간 전후에 왼쪽 깜빡이는 계속 꺼져 있었어요.")
+    }
+
+    private fun gapIn(s: PracticeSession, from: Long, until: Long) =
+        s.dataGap && (s.rulesVersion < 3 || s.evidenceGaps.isEmpty() || s.evidenceGaps.any { it.start <= until && it.end >= from })
+
+    private fun unbuckledWhileMoving(s: PracticeSession): Boolean {
+        val unbuckled = s.samples.asSequence().filter { it.key == "belt" && it.quality == "VALID" && it.value == "false" }
+            .map { it.atMs }.toHashSet()
+        return s.samples.any { it.key == "speed" && it.quality == "VALID" && it.atMs in unbuckled &&
+            it.value?.toDoubleOrNull()?.let { v -> v.isFinite() && abs(v) > 0.5 } == true }
+    }
+
+    private fun evaluateVehicleReview(s: PracticeSession): Assessment {
+        if (s.interrupted || s.safetyIssue) return Assessment("HELD", null, 0, false, "여기까지의 차량 기록",
+            if (s.interrupted) "연습이 중단돼 수신한 기록만 남겼어요." else "안전 문제가 기록돼 구간별 평가는 보류했어요.")
+        val end = s.endedAtMs ?: return Assessment("RECORDING", null, 0, false, "차량 기록 중", "주차 후 기록을 마치면 구간별로 볼 수 있어요.")
+        val result = when {
+            s.nativeDestination != null -> Assessment("DESTINATION_PRACTICE", null, 0, false, "목적지 연습 기록", "선택한 목적지와 차량 기록을 저장했어요.")
+            s.practiceRoute.isLanePractice -> evaluateLaneSignals(s, end)
+            s.practiceRoute.turns.isEmpty() -> Assessment("DRIVE_RECORDED", null, 0, false, "주행 기록", "이 코스의 연습 시간과 수신한 차량 정보를 저장했어요.")
+            else -> {
+                val turns = turnAssessments(s)
+                val checked = turns.count { it.status == "OBSERVED" || it.status == "SIGNAL_ABSENT" }
+                val suggested = turns.any { it.practiceSuggested }
+                when {
+                    checked == 0 -> Assessment("HELD", null, 0, false, "비교할 구간 기록이 부족해요",
+                        if (turns.isEmpty()) "코스의 위치와 조향이 함께 확인된 회전 구간이 없어요." else "해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.")
+                    else -> Assessment("VEHICLE_RECORDED", null, checked, false,
+                        if (suggested) "다시 연습할 깜빡이" else "구간별 깜빡이 기록",
+                        "차량 위치와 조향으로 추정한 회전 구간 ${checked}곳에서 방향지시등을 확인했어요.", practiceSuggested = suggested)
+                }
+            }
+        }
+        return if (unbuckledWhileMoving(s)) result.copy(reason = result.reason + " 주행 중 운전석 벨트 미착용 신호가 있었어요.") else result
+    }
+
+    private fun evaluateLaneSignals(s: PracticeSession, end: Long): Assessment {
+        val passage = s.passage
+        val exit = passage?.exitMs
+        if (passage == null || exit == null) return Assessment("NO_OPPORTUNITY", null, 0, false, "차로 변경 연습 기록", "설정한 구간의 진입과 통과를 모두 확인하지 못했어요.")
+        val from = passage.entryMs - 2000
+        val until = exit + 2000
+        if (from < s.startedAtMs || until > end || gapIn(s, from, until) ||
+            !hasLocationCoverage(s, passage.entryMs, exit) ||
+            !covered(s.samples, "turn_subscription", from, until) { it == "READY" } ||
+            !covered(s.samples, "turn", from, until) { it in setOf("OFF", "LEFT", "RIGHT") }) {
+            return Assessment("HELD", null, 0, false, "차로 변경 연습 기록", "구간 전후의 방향지시등 기록이 충분하지 않아요.")
+        }
+        val indicators = s.samples.filter { it.key == "turn" && it.atMs in from..until }.map { it.value }.toSet()
+        val signal = when {
+            "LEFT" in indicators && "RIGHT" in indicators -> "왼쪽·오른쪽 깜빡이가 각각 켜진 기록이 있어요."
+            "LEFT" in indicators -> "왼쪽 깜빡이가 켜진 기록이 있어요."
+            "RIGHT" in indicators -> "오른쪽 깜빡이가 켜진 기록이 있어요."
+            else -> "깜빡이가 계속 꺼져 있었어요."
+        }
+        return Assessment("LANE_SIGNALS", null, 1, false, "차로 변경 연습 기록", "모의 구간 전후에 $signal 실제 차로 변경 여부는 차량 기록만으로 확인하기 어려워요.")
     }
 
     fun turnAssessments(s: PracticeSession): List<TurnAssessment> = s.turns.filter { it.exitMs != null }.map { event ->
@@ -338,18 +403,59 @@ object PracticeEvaluator {
         val from = (event.entryMs - 2000).coerceAtLeast(s.startedAtMs)
         val until = event.exitMs!! + 2000
         when {
-            event.observation == Observation.NOT_PERFORMED -> assessment("NO_TURN", false, "회전하지 않았다고 답했어요. 이 사건은 오답에서 제외해요.")
-            event.observation != Observation.CONFIRMED -> assessment("HELD", false, "동승자의 회전 확인이 없어 미평가로 남겼어요.")
+            !s.vehicleReview && event.observation == Observation.NOT_PERFORMED -> assessment("NO_TURN", false, "회전하지 않았다고 답했어요. 이 사건은 오답에서 제외해요.")
+            !s.vehicleReview && event.observation != Observation.CONFIRMED -> assessment("HELD", false, "동승자의 회전 확인이 없어 미평가로 남겼어요.")
             s.interrupted || s.safetyIssue || end == null || end < until -> assessment("HELD", false, "중단·안전 문제 또는 회전 뒤 기록 부족으로 평가를 보류했어요.")
-            s.dataGap && (s.rulesVersion < 3 || s.evidenceGaps.isEmpty() || s.evidenceGaps.any { it.start <= until && it.end >= from }) ->
+            s.vehicleReview && (event.entryMs - 2000 < s.startedAtMs || !hasVehicleTurnEvidence(s, event)) ->
+                assessment("HELD", false, "위치와 조향 기록이 이 회전 구간을 충분히 뒷받침하지 못했어요.")
+            gapIn(s, from, until) ->
                 assessment("HELD", false, "이 회전 전후의 기록에 수신 공백이 있어 평가를 보류했어요.")
             s.rulesVersion >= 3 && !covered(s.samples, "turn_subscription", from, until) { it == "READY" } ->
                 assessment("HELD", false, "회전 전후에 방향지시등 변경을 계속 받을 수 있었는지 확인하지 못했어요.")
             !covered(s.samples, "turn", from, until) { it in setOf("OFF", "LEFT", "RIGHT") } -> assessment("HELD", false, "회전 전후의 방향지시등 기록을 연속으로 확인하지 못했어요.")
+            s.vehicleReview && s.samples.any { it.key == "turn" && it.atMs in from..until && it.value != "OFF" && it.value != event.direction.signal } ->
+                assessment("HELD", false, "구간 방향과 다른 깜빡이 신호가 있어 복습을 보류했어요.")
+            s.vehicleReview && covered(s.samples, "turn", from, until) { it == "OFF" } ->
+                assessment("SIGNAL_ABSENT", false, "이 구간 전후에는 깜빡이가 계속 꺼져 있었어요.")
+            s.vehicleReview -> assessment("OBSERVED", false, "이 구간 전후에 ${if (event.direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"} 깜빡이가 켜진 기록이 있어요.")
             s.samples.any { it.key == "turn" && it.atMs in from..until && it.quality == "VALID" && it.value == event.direction.signal } -> assessment("OBSERVED", false, "${event.direction.label} 구간에서 ${if (event.direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"} 깜빡이를 켠 기록이 있어요. 신호 시점이나 안전한 회전까지 확인한 것은 아니에요.")
             covered(s.samples, "turn", from, until) { it == "OFF" } -> assessment("OMISSION", true, "동승자가 ${event.direction.label}을 확인했고, 구간 전후 깜빡이는 계속 꺼져 있었어요.")
             else -> assessment("HELD", false, "회전 방향과 다른 신호가 있어 실제 조작을 다시 확인해야 해요.")
         }
+    }
+
+    private fun hasVehicleTurnEvidence(s: PracticeSession, event: TurnEvent): Boolean {
+        val exit = event.exitMs ?: return false
+        val change = event.headingChangeDeg ?: return false
+        val peak = event.steeringPeakDeg ?: return false
+        val left = event.direction == TurnDirection.LEFT
+        val matches = if (left) change in -135.0..-55.0 && peak <= -2.0 else change in 55.0..135.0 && peak >= 2.0
+        return event.evidenceStatus == "ESTIMATED" && matches && peak.isFinite() &&
+            hasLocationCoverage(s, event.entryMs, exit) &&
+            covered(s.samples, "steering", event.entryMs, exit) { it?.toDoubleOrNull()?.isFinite() == true } &&
+            covered(s.samples, "steering_subscription", event.entryMs, exit) { it == "READY" }
+    }
+
+    /** Snapshots can repeat a fix. Both provider time and arrival of distinct fixes must advance. */
+    private fun hasLocationCoverage(s: PracticeSession, from: Long, until: Long): Boolean {
+        val samples = s.samples.filter { it.key == "location" && it.atMs in from..until }.sortedBy { it.atMs }
+        if (samples.size < 2 || samples.first().atMs - from > 1200 || until - samples.last().atMs > 1200) return false
+        var lastStamp = 0L
+        var lastDistinctAt = from
+        var fixes = 0
+        for (sample in samples) {
+            val fields = sample.value?.split(',') ?: return false
+            if (sample.quality != "VALID" || sample.origin != "CALLBACK" || locationPoint(fields) == null) return false
+            val stamp = fields[4].toLong()
+            if (stamp < lastStamp || sample.atMs - lastDistinctAt > 3500) return false
+            if (stamp > lastStamp) {
+                if (fixes > 0 && stamp - lastStamp > 3500) return false
+                lastStamp = stamp
+                lastDistinctAt = sample.atMs
+                fixes++
+            }
+        }
+        return fixes >= 2 && until - lastDistinctAt <= 3500
     }
 
     private fun evaluateTurns(s: PracticeSession): Assessment {
@@ -360,8 +466,7 @@ object PracticeEvaluator {
         if (results.isEmpty()) return Assessment("NO_OPPORTUNITY", null, 0, false, "회전 기록 없음", "코스 통과와 조향·위치 변화를 함께 확인하지 못했습니다.")
         if (checked == 0) return Assessment("HELD", null, 0, false, if (results.all { it.status == "NO_TURN" }) "확인한 회전 없음" else "회전 확인이 남았습니다",
             if (results.all { it.status == "NO_TURN" }) "회전하지 않은 것으로 답한 구간은 평가에서 제외했습니다." else "보지 못했거나 신호 기록이 부족한 구간은 평가하지 않았습니다.")
-        val unbuckledInMotion = s.samples.any { sample -> sample.key == "belt" && sample.quality == "VALID" && sample.value == "false" &&
-            s.samples.any { it.key == "speed" && it.atMs == sample.atMs && it.quality == "VALID" && abs(it.value?.toDoubleOrNull() ?: 0.0) > 0.5 } }
+        val unbuckledInMotion = unbuckledWhileMoving(s)
         val reason = if (unbuckledInMotion) "주행 중 안전벨트 미착용 신호가 있었습니다. 확인한 회전과 오답 기록은 남겼습니다."
             else if (results.any { it.status == "HELD" }) "확인한 회전 ${checked}곳만 기록했습니다. 확인하지 못한 구간은 평가하지 않았습니다."
             else "동승자가 확인한 회전 ${checked}곳의 신호 기록입니다. 공식 시험 점수는 계산하지 않습니다."

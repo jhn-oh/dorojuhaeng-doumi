@@ -55,11 +55,12 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         return rows.map { data ->
             val session = decode(data)
             val assessment = PracticeEvaluator.evaluate(session)
-            val turns = if (session.rulesVersion >= 2) PracticeEvaluator.turnAssessments(session).filter { it.mistake } else emptyList()
-            val notes = if (turns.isEmpty()) listOf(assessment.reason) else turns.map {
+            val turns = if (session.rulesVersion >= 2) PracticeEvaluator.turnAssessments(session).filter { session.vehicleReview || it.mistake } else emptyList()
+            val notes = if (turns.isEmpty()) listOf(assessment.reason) else (if (session.vehicleReview) listOf(assessment.reason) else emptyList()) + turns.map {
                 practiceTargetLabel(it.event.id.substringAfterLast(':'), session.practiceRoute) + " · " + it.reason
             }
-            PreviousPractice(session.practiceRoute.name, session.startedWallMs, notes)
+            val title = if (session.vehicleReview) session.practiceRoute.name else "${session.practiceRoute.name} · 이전 방식"
+            PreviousPractice(title, session.startedWallMs, notes)
         }
     }
 
@@ -103,6 +104,7 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         )
     }
     fun metadata(s: PracticeSession): JSONObject = JSONObject().put("schemaVersion", 1).put("id", s.id).put("courseId", s.courseId).put("courseVersion", s.courseVersion).put("rulesVersion", s.rulesVersion)
+        .apply { if (s.vehicleReview) put("reviewSource", "VEHICLE_SIGNALS") }
         .put("startedAtMs", s.startedAtMs).put("startedWallMs", s.startedWallMs).put("endedAtMs", s.endedAtMs ?: JSONObject.NULL).put("phase", s.phase.name)
         .put("manualDoor", s.manualDoor).put("manualBelt", s.manualBelt).put("expectedDoors", JSONArray(s.expectedDoors)).put("sampleCount", s.samples.size)
         .put("passage", s.passage?.let { JSONObject().put("id", it.id).put("entryMs", it.entryMs).put("exitMs", it.exitMs ?: JSONObject.NULL) } ?: JSONObject.NULL)

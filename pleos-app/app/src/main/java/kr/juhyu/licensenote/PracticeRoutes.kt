@@ -10,16 +10,17 @@ data class PracticeRoute(
     val destination: String,
     val points: List<GeoPoint>,
     val turns: List<CourseTurn>,
-    val rulesVersion: Int = 3,
     val routingSeconds: Double? = null,
     val waypoints: List<GeoPoint> = turns.map { it.corner },
     val distance: Int = points.zipWithNext().sumOf { (a, b) -> distanceMeters(a, b) }.roundToInt(),
     val verifiedArterial: Boolean = false,
 ) {
     val version = 1
+    val rulesVersion = VEHICLE_REVIEW_RULES
+    val isLanePractice get() = id == LegacyLaneCourse.id
     val finish get() = points.last()
     val minutes = ceil((routingSeconds ?: (distance / (15_000.0 / 3600) + 20 * waypoints.size)) / 60).toInt()
-    val exercises = if (verifiedArterial) "편도 3~5차로 · 일반도로" else if (rulesVersion == 1) "왼쪽 차로 변경 1회" else turns.joinToString(" · ") { "${it.direction.label} 1회" }
+    val exercises = if (verifiedArterial) "편도 3~5차로 · 일반도로" else if (isLanePractice) "왼쪽 차로 변경 연습 구간" else turns.joinToString(" · ") { "${it.direction.label} 1회" }
     val stats = "${distance} m   약 ${minutes}분   $exercises"
 }
 
@@ -30,9 +31,9 @@ object CourseCatalog {
         PracticeCourse.points.take(3), PracticeCourse.turns.take(1), routingSeconds = 30.8, distance = 187)
     val right = PracticeRoute("yangjae-right-01", "양재 우회전", left.destination, "서운로 교차로 다음 지점",
         PracticeCourse.points.subList(2, 5), PracticeCourse.turns.takeLast(1), routingSeconds = 17.8, distance = 136)
-    val lane = PracticeRoute("yangjae-lane-sim-01", "차로 변경 연습", "차로 변경 모의 구간 시작", "차로 변경 모의 구간 끝",
+    val lane = PracticeRoute(LegacyLaneCourse.id, "차로 변경 연습", "차로 변경 모의 구간 시작", "차로 변경 모의 구간 끝",
         listOf(LegacyLaneCourse.start, LegacyLaneCourse.entry, LegacyLaneCourse.exit, GeoPoint(37.48360, 127.03300)),
-        emptyList(), rulesVersion = 1, waypoints = listOf(LegacyLaneCourse.entry))
+        emptyList(), waypoints = listOf(LegacyLaneCourse.entry))
     // 42dot destination from the Pleos NaviHelper example. OSRM car route, 2026-11-14.
     // The second waypoint continues south. Only the first left turn has a matching practice detector.
     val fortytwo = PracticeRoute("yangjae-42dot-01", "42dot까지 좌회전 연습", full.departure, "42dot 앞 남부순환로355길",
@@ -60,9 +61,9 @@ object CourseCatalog {
     fun find(id: String?) = all.firstOrNull { it.id == id }
 
     fun recommendation(session: PracticeSession?): PracticeRoute? {
-        if (session == null || !PracticeEvaluator.evaluate(session).mistake) return null
+        if (session == null || !PracticeEvaluator.evaluate(session).practiceSuggested) return null
         if (session.rulesVersion == 1) return lane
-        val goals = PracticeEvaluator.turnAssessments(session).filter { it.mistake }.map { it.event.direction }.toSet()
+        val goals = PracticeEvaluator.turnAssessments(session).filter { it.practiceSuggested }.map { it.event.direction }.toSet()
         return when (goals) {
             setOf(TurnDirection.LEFT) -> left
             setOf(TurnDirection.RIGHT) -> right
@@ -106,7 +107,7 @@ fun matchCourseRequest(request: String): CourseMatch {
     val routes = CourseCatalog.all.filter { route ->
         (!(wantsWide || wantsLocal) || route.verifiedArterial) &&
             (!yangjaeOnly || !route.verifiedArterial) && (arterialStop == null || route.destination.contains(arterialStop)) &&
-            (!toFortytwo || route == CourseCatalog.fortytwo) && (!basic || route == CourseCatalog.full) && (!lane || route.rulesVersion == 1) &&
+            (!toFortytwo || route == CourseCatalog.fortytwo) && (!basic || route == CourseCatalog.full) && (!lane || route.isLanePractice) &&
             (!left || route.turns.any { it.direction == TurnDirection.LEFT }) &&
             (!right || route.turns.any { it.direction == TurnDirection.RIGHT }) &&
             (minutes == null || route.minutes == minutes ||

@@ -34,7 +34,7 @@ internal fun nextPracticeCue(route: PracticeRoute, point: GeoPoint, accuracy: Do
     val candidates = matches.filter { it.offset <= best.offset + maxOf(2.0, accuracy * .5) }
     if (candidates.any { abs(it.distanceAlong - best.distanceAlong) > maxOf(18.0, accuracy * 2) }) return unavailable
     if (heading != null && heading.isFinite() && candidates.none { abs(headingChangeDegrees(it.heading, heading)) < 75 }) return unavailable
-    val targets = if (route.rulesVersion == 1) listOf(Triple("차로 변경", LegacyLaneCourse.entry, "LANE"))
+    val targets = if (route.isLanePractice) listOf(Triple("차로 변경", LegacyLaneCourse.entry, "LANE"))
         else route.turns.map { Triple(it.direction.label, it.corner, it.direction.name) }
     val remaining = targets.mapNotNull { (label, position, key) ->
         markerProgress(route, position)?.let { Triple(label, it - best.distanceAlong, key) }

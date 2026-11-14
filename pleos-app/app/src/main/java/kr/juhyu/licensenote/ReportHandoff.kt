@@ -15,7 +15,8 @@ internal fun reportText(s: PracticeSession): String {
     return buildString {
         appendLine("도로주행 도우미 · " + s.practiceRoute.name)
         if (duration != null) appendLine("연습 시간 " + duration / 60 + "분 " + duration % 60 + "초")
-        if (score != null) appendLine("연습 점수 ${score}점 · 46개 감점 항목 중 ${assessment.checked}개 확인")
+        if (s.vehicleReview) appendLine("차량 신호로 정리한 연습 기록")
+        else if (score != null) appendLine("연습 점수 ${score}점 · 46개 감점 항목 중 ${assessment.checked}개 확인")
         else if (s.nativeDestination != null) appendLine("기본 내비 목적지 연습 · 주행 기록")
         else if (s.rulesVersion >= 2) appendLine("확인한 회전 ${assessment.checked}곳 · 숫자 점수 보류")
         else appendLine(assessment.title.replace("\n", " "))
@@ -25,7 +26,7 @@ internal fun reportText(s: PracticeSession): String {
             PracticeEvaluator.turnAssessments(s).forEach {
                 appendLine(it.event.direction.label + " · " + it.reason)
             }
-            if (assessment.mistake) append("다음 연습 · 주변을 확인하고 깜빡이를 미리 켜 보세요.")
+            if (assessment.practiceSuggested) append("다음 연습 · 주변을 확인하고 깜빡이를 미리 켜 보세요.")
         }
     }.trim()
 }
