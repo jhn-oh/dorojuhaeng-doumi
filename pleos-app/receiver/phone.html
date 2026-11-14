@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도로주행 도우미 · 연습 결과</title><style>
+:root{color-scheme:light dark;font:18px/1.6 system-ui,sans-serif}body{margin:0}main{max-width:32rem;margin:4rem auto;padding:0 1.25rem}h1{font-size:2rem;line-height:1.25}
+input,button{font:inherit;border-radius:.75rem;padding:.65rem 1rem}input{box-sizing:border-box;width:100%;margin:.4rem 0 1rem}button{background:#185ccb;color:white;border:0;cursor:pointer}
+article{white-space:pre-wrap;padding:1.2rem;border:1px solid #8593a4;border-radius:1rem}small{color:#63809a}
+</style></head><body><main><small>도로주행 도우미</small><h1>연습 기록 받기</h1><p id="status" role="status">차량에 표시할 기기 이름을 입력해 주세요.</p>
+<form id="pair"><label>받을 기기 이름<input id="alias" value="내 휴대폰" required maxlength="32"></label><button>이 기기로 연결</button></form>
+<article id="report" hidden></article><button id="ack" hidden>이 기록을 받았어요</button></main>
+<script>
+"use strict";
+const el = id => document.getElementById(id);
+const link = location.hash.slice(1) || sessionStorage.getItem("practiceLink") || "";
+if (location.hash) { sessionStorage.setItem("practiceLink", link); history.replaceState(null,"",location.pathname); }
+const [id, token] = link.split(".");
+let revision, ended = false;
+async function api(action, body) {
+  const response = await fetch("/v1/pair/" + encodeURIComponent(id) + "/" + action, {
+    method: body ? "POST" : "GET", headers: {"Content-Type":"application/json", Authorization:"Bearer " + token},
+    body: body ? JSON.stringify(body) : undefined, cache:"no-store"
+  });
+  if (!response.ok) { if ([403,410].includes(response.status)) ended = true; throw Error(ended ? "연결이 만료됐어요. 차량에서 새 QR을 열어 주세요." : "연결을 확인하고 다시 시도해 주세요."); }
+  return response.json();
+}
+async function refresh() {
+  try {
+    const result = await api("read");
+    el("pair").hidden = result.state !== "waiting";
+    if (result.state === "paired") el("status").textContent = "차량에서 기기 이름을 확인하고 전송을 눌러 주세요.";
+    if (result.state === "sent" || result.state === "received") {
+      el("report").textContent = result.summary; el("report").hidden = false;
+      revision = result.revision; el("ack").hidden = result.state === "received";
+      el("status").textContent = result.state === "received" ? "수신을 확인했어요." : "연습 기록이 도착했어요. 아래에서 수신을 확인해 주세요.";
+      ended = result.state === "received";
+    }
+    if (result.state === "cancelled") { ended = true; el("report").hidden=true; el("report").textContent=""; el("status").textContent = "차량에서 전송을 취소했어요."; }
+  } catch (error) { el("status").textContent = error.message; if (ended) { el("report").hidden=true; el("report").textContent=""; } }
+  if (ended) { sessionStorage.removeItem("practiceLink"); el("pair").hidden=true; el("ack").hidden=true; }
+  else setTimeout(refresh, 1500);
+}
+el("pair").onsubmit = async event => { event.preventDefault(); try { await api("claim",{alias:el("alias").value.trim()}); el("pair").hidden=true; el("status").textContent="차량에서 전송을 눌러 주세요."; } catch(error) { el("status").textContent=error.message; } };
+el("ack").onclick = async () => { try { await api("ack",{revision}); el("ack").hidden=true; el("status").textContent="수신을 확인했어요."; } catch(error) { el("status").textContent=error.message; } };
+if (/^[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{32}$/.test(link)) refresh();
+else { el("pair").hidden=true; el("status").textContent="차량에서 연결 QR을 다시 찍어 주세요."; }
+</script></body></html>

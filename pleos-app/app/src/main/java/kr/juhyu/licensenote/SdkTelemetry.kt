@@ -2,12 +2,16 @@ package kr.juhyu.licensenote
 
 import ai.pleos.playground.vehicle.Vehicle
 import ai.pleos.playground.vehicle.api.model.area.SeatArea
+import ai.pleos.playground.vehicle.api.model.area.WindowArea
 import ai.pleos.playground.vehicle.api.model.area.DoorArea
 import ai.pleos.playground.vehicle.api.model.capability.AccessType
 import ai.pleos.playground.vehicle.api.model.capability.CapabilityConfig
 import ai.pleos.playground.vehicle.constant.area.SeatValue
+import ai.pleos.playground.vehicle.constant.area.WindowValue
 import ai.pleos.playground.vehicle.constant.area.TurnSignalValue
 import ai.pleos.playground.vehicle.constant.control.LightState
+import ai.pleos.playground.vehicle.constant.control.DrivingModeType
+import ai.pleos.playground.vehicle.constant.control.WiperState
 import ai.pleos.playground.vehicle.listener.*
 import ai.pleos.playground.location.fused.FusedLocation
 import ai.pleos.playground.location.fused.listener.FusedLocationListener
@@ -40,6 +44,7 @@ data class Signal(
     val receivedMs: Long = 0,
     val origin: String = "",
     val error: String? = null,
+    val sampleNs: Long? = null,
 )
 
 /** Owns public SDK subscriptions independently of the Compose Activity. */
@@ -65,6 +70,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private var navigationRouteActive = false
     private var navigationDestinationMatches = false
     private var navigationWaypointsMatch = false
+    private var requestedCourse = CourseCatalog.full
     private var navigationProviderReady = false
     private var waitingCourseNavigation = false
     private var navigationGuiding = false
@@ -90,10 +96,39 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private val registeredDoors = mutableSetOf<DoorArea>()
     private val guideReadDue = mutableMapOf<String, Long>()
     private val guideRequests = mutableMapOf<String, Long>()
+    private var frontWiper: WindowArea? = null
+    private var previousWiper: WiperState? = null
+    private var wiperOffAt = 0L
+    private val wiperListener = object : WiperStateListener {
+        override fun onWiperStateUpdated(state: WiperState?) = onInput { recordWiper(state, "CALLBACK") }
+        override fun onFailed(e: Exception) = onInput {
+            previousWiper = null
+            wiperOffAt = 0
+            releaseWiper()
+            fail("wiper_front", e)
+        }
+    }
+
+    private fun releaseWiper() {
+        frontWiper?.let { runCatching { vehicle.getWiper().unregisterWiperState(it, wiperListener) } }
+        frontWiper = null
+        previousWiper = null
+        wiperOffAt = 0
+    }
+
+    private fun recordWiper(state: WiperState?, origin: String) {
+        if (closed || frontWiper == null) return
+        val now = SystemClock.elapsedRealtime()
+        if (previousWiper == WiperState.OFF && state == WiperState.ON && now - wiperOffAt in 0..5000)
+            send("wiper_front_activation", wiperOffAt, "Vehicle/Wiper", origin)
+        if (state == WiperState.OFF) wiperOffAt = now
+        previousWiper = state
+        send("wiper_front", state?.name, "Vehicle/Wiper", origin)
+    }
     @Volatile private var seatArea: SeatArea? = null
     private val doors = java.util.concurrent.ConcurrentHashMap<DoorArea, DoorPositionListener>()
-    private fun send(key: String, value: Any?, source: String, origin: String = "READ") {
-        if (!closed) emit(key, Signal(value?.toString(), if (value == null) "UNAVAILABLE" else "VALID", source, SystemClock.elapsedRealtime(), origin))
+    private fun send(key: String, value: Any?, source: String, origin: String = "READ", sampleNs: Long? = null) {
+        if (!closed) emit(key, Signal(value?.toString(), if (value == null) "UNAVAILABLE" else "VALID", source, SystemClock.elapsedRealtime(), origin, sampleNs = sampleNs))
     }
     private fun fail(key: String, error: Exception) {
         if (!closed) emit(key, Signal(quality = "ERROR", source = "SDK", receivedMs = SystemClock.elapsedRealtime(), error = error.javaClass.simpleName + ": " + error.message))
@@ -159,7 +194,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private val carListener = object : CarPropertyManager.CarPropertyEventCallback {
         override fun onChangeEvent(value: CarPropertyValue<*>) {
             val key = if (value.propertyId == VehiclePropertyIds.PERF_VEHICLE_SPEED) "speed" else "gear"
-            send(key, if (value.status == CarPropertyValue.STATUS_AVAILABLE) value.value else null, "AAOS/CarPropertyManager", "CALLBACK")
+            send(key, if (value.status == CarPropertyValue.STATUS_AVAILABLE) value.value else null, "AAOS/CarPropertyManager", "CALLBACK", value.timestamp)
         }
         override fun onErrorEvent(propertyId: Int, areaId: Int) = fail(if (propertyId == VehiclePropertyIds.PERF_VEHICLE_SPEED) "speed" else "gear", IllegalStateException("property unavailable"))
     }
@@ -252,7 +287,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
                 .put("tollFare", destinationInfo.tollFare).put("poiId", destinationInfo.poiId)
                 .put("poiSubId", destinationInfo.poiSubId ?: JSONObject.NULL).put("poiProvider", destinationInfo.poiProvider)
                 .toString(), "NaviHelper/3.0.5", "CALLBACK")
-            navigationDestinationMatches = distanceMeters(PracticeCourse.finish, GeoPoint(destinationInfo.latitude, destinationInfo.longitude)) <= 50
+            navigationDestinationMatches = distanceMeters(requestedCourse.finish, GeoPoint(destinationInfo.latitude, destinationInfo.longitude)) <= 50
             verifyNavigationRoute()
         }
         override fun onWayPointInfo(waypointInfoList: List<WaypointInfo>) = onNavigation {
@@ -267,18 +302,25 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
                     .put("poiId", waypoint.poiId).put("poiSubId", waypoint.poiSubId ?: JSONObject.NULL)
                     .put("poiProvider", waypoint.poiProvider))
             } }.toString(), "NaviHelper/3.0.5", "CALLBACK")
-            navigationWaypointsMatch = PracticeCourse.turns.all { turn -> waypointInfoList.any { distanceMeters(turn.corner, GeoPoint(it.latitude, it.longitude)) <= 50 } }
+            navigationWaypointsMatch = waypointInfoList.size == requestedCourse.waypoints.size &&
+                requestedCourse.waypoints.zip(waypointInfoList).all { (point, waypoint) ->
+                    distanceMeters(point, GeoPoint(waypoint.latitude, waypoint.longitude)) <= 50
+                }
             verifyNavigationRoute()
         }
         override fun onTBTInfo(tbtInfoList: List<TBTInfo>) = onNavigation {
             send("navigation_tbt", JSONArray().also { array -> tbtInfoList.forEach { array.put(JSONObject().put("type", it.type.name).put("distance", it.distance).put("description", it.description)) } }.toString(), "NaviHelper/3.0.5", "CALLBACK")
+            val first = tbtInfoList.firstOrNull()?.takeIf {
+                navigationCourseRequestGeneration > 0 && navigationGuiding && navigationRouteActive && navigationDestinationMatches && navigationWaypointsMatch
+            }
+            send("course_tbt", first?.let { "${requestedCourse.id}|${it.type.name}|${it.distance}" }, "NaviHelper/3.0.5", "CALLBACK")
         }
     }
 
     private fun verifyNavigationRoute() {
         if (navigationRequestActive && navigationRouteActive && navigationDestinationMatches && navigationWaypointsMatch) {
             navigationRequestActive = false
-            send("navigation_request", "ROUTE_READY", "NaviHelper/3.0.5 destination and two waypoints confirmed", "CALLBACK")
+            send("navigation_request", "ROUTE_READY", "NaviHelper/3.0.5 destination and ${requestedCourse.waypoints.size} waypoints confirmed", "CALLBACK")
         } else if (navigationRequestActive && navigationGuiding && navigationDestinationMatches) {
             send("navigation_request", "GUIDING_UNCONFIRMED", "NaviHelper/3.0.5 guidance and destination confirmed; route/waypoint response incomplete", "CALLBACK")
         }
@@ -345,8 +387,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
     fun probeNavigation() = onNavigation { initializeNavigation() }
 
-    /** A user action: configure the fixed course only while parked, otherwise show the existing route. */
-    fun openNavigation(withCourseRoute: Boolean) = onNavigation {
+    /** Configure the selected course only while parked, otherwise show the existing route. */
+    fun openNavigation(withCourseRoute: Boolean, route: PracticeRoute? = null) = onNavigation {
+        if (withCourseRoute && route != null) requestedCourse = route
         pendingNavigationScreen = NavigationScreenRequest.Foreground
         pendingNavigationOpen = withCourseRoute
         if (withCourseRoute) send("navigation_request", "CONNECTING", "NaviHelper/3.0.5", "REQUEST")
@@ -443,12 +486,14 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         send("navigation_waypoint_arrivals", JSONObject().put("requestGeneration", requestId)
             .put("events", JSONArray()).toString(), "NaviHelper/3.0.5", "REQUEST")
         runCatching {
-            val destination = RouteInfo(latitude = PracticeCourse.finish.lat, longitude = PracticeCourse.finish.lon, poiName = "양재 좌·우회전 검증 코스 도착", poiId = "", address = "서울 서초구 서운로", poiSubId = "")
-            val waypoints = PracticeCourse.turns.mapIndexed { index, turn ->
-                RequestWaypointInfo(latitude = turn.corner.lat, longitude = turn.corner.lon, poiName = "${turn.direction.label} 검증 지점", waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND, poiId = "", address = "서울 서초구 ${if (index == 0) "남부순환로347길·강남대로37길" else "강남대로37길·서운로"}", poiSubId = "")
+            val destination = RouteInfo(latitude = requestedCourse.finish.lat, longitude = requestedCourse.finish.lon, poiName = requestedCourse.destination, poiId = "", address = "", poiSubId = "")
+            val waypoints = requestedCourse.waypoints.mapIndexed { index, point ->
+                val label = requestedCourse.turns.firstOrNull { distanceMeters(it.corner, point) < 1 }?.direction?.label
+                    ?: if (requestedCourse.rulesVersion == 1) "차로 변경" else "경유"
+                RequestWaypointInfo(latitude = point.lat, longitude = point.lon, poiName = "$label 검증 지점", waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND, poiId = "", address = "", poiSubId = "")
             }
             navigation.requestRouteWithWaypoints(RouteWithWaypointsRequest(destination, waypoints))
-            send("navigation_request", "REQUESTED", "NaviHelper/3.0.5 destination and two waypoints", "REQUEST")
+            send("navigation_request", "REQUESTED", "NaviHelper/3.0.5 destination and ${waypoints.size} waypoints", "REQUEST")
             nextNavigationQuery = SystemClock.elapsedRealtime() + 5000
             navigationHandler.postDelayed({
                 if (navigationRequestActive && navigationRequestId == requestId) {
@@ -564,7 +609,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         }
     }
     private fun readGuideSignals(now: Long) {
-        if (!guideVisible()) {
+        val guide = guideVisible()
+        if (!guide && frontWiper != null) releaseWiper()
+        if (!guide && !collectingLocation) {
             guideReadDue.clear()
             guideRequests.clear()
             return
@@ -592,6 +639,44 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
                 request({ value -> finish(Signal(value?.toString(), if (value == null) "UNAVAILABLE" else "VALID"), 1500) },
                     failed, { finish(Signal(quality = "UNSUPPORTED"), 30000) })
             } catch (e: Exception) { failed(e) }
+        }
+        fun <T> property(key: String, source: String,
+                capability: ((CapabilityConfig) -> Unit, (Exception) -> Unit) -> Unit,
+                get: ((T?) -> Unit, (Exception) -> Unit) -> Unit) {
+            read<T>(key, source) { value, failed, unsupported ->
+                capability({ config ->
+                    if (config.accessType in listOf(AccessType.READ, AccessType.READ_WRITE)) {
+                        try { get(value, failed) } catch (e: Exception) { failed(e) }
+                    } else unsupported()
+                }, failed)
+            }
+        }
+        if (collectingLocation) {
+            val brake = vehicle.getBrake()
+            property<Boolean>("brake_pressed", "Vehicle/Brake", brake::checkBrakePedalStatusCapabilities, brake::getCurrentBrakePedalStatus)
+            val mode = vehicle.getDrivingMode()
+            property<DrivingModeType>("drive_mode", "Vehicle/DrivingMode", mode::checkDrivingModeStateCapabilities, mode::getCurrentDrivingModeState)
+            val distance = vehicle.getOdometer()
+            property<Float>("odometer_km", "Vehicle/Odometer", distance::checkCurrentDistanceDrivenCapabilities, distance::getCurrentDistanceDriven)
+            property<Int>("vehicle_usage_minutes", "Vehicle/Odometer", distance::checkTripCumulativeDrivingTimeCapabilities, distance::getTripCumulativeDrivingTime)
+        }
+        if (!guide) return
+        val wiper = vehicle.getWiper()
+        read<WiperState>("wiper_front", "Vehicle/Wiper") { value, failed, unsupported ->
+            val checkFailed: (Exception) -> Unit = { error -> onInput { releaseWiper(); failed(error) } }
+            wiper.checkWiperStateCapabilities({ config, areas -> onInput {
+                if (!guideVisible()) return@onInput
+                val windshield = areas.keys.firstOrNull { it.values.contentEquals(arrayOf(WindowValue.FRONT_WINDSHIELD)) }
+                if (windshield == null || config.accessType !in listOf(AccessType.READ, AccessType.READ_WRITE)) {
+                    releaseWiper(); unsupported()
+                } else try {
+                    if (frontWiper == null) {
+                        frontWiper = windshield
+                        wiper.registerWiperState(windshield, wiperListener)
+                    }
+                    wiper.getCurrentWiperState(windshield, { state -> onInput { recordWiper(state, "READ"); value(state) } }, checkFailed)
+                } catch (e: Exception) { checkFailed(e) }
+            } }, checkFailed)
         }
         val safety = vehicle.getSafety()
         read<Boolean>(GUIDE_BELT_WARNING, "Vehicle/Safety") { value, failed, unsupported ->
@@ -647,7 +732,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
                 for ((id, key) in listOf(VehiclePropertyIds.PERF_VEHICLE_SPEED to "speed", VehiclePropertyIds.GEAR_SELECTION to "gear")) {
                     runCatching {
                         val v = p.getProperty<Any>(id, 0)
-                        send(key, if (v.status == CarPropertyValue.STATUS_AVAILABLE) v.value else null, "AAOS/CarPropertyManager")
+                        send(key, if (v.status == CarPropertyValue.STATUS_AVAILABLE) v.value else null, "AAOS/CarPropertyManager", sampleNs = v.timestamp)
                     }.onFailure { fail(key, Exception(it)) }
                 }
             }
@@ -656,6 +741,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
     fun close() {
         closed = true
+        releaseWiper()
         main.removeCallbacksAndMessages(null)
         runCatching { seatArea?.let { vehicle.getSeat().unregisterSeatBeltBuckledState(it, beltListener) } }
         doors.forEach { (area, listener) -> runCatching { vehicle.getDoor().unregisterDoorPosition(area, listener) } }

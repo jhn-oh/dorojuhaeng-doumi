@@ -130,6 +130,7 @@ private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Lo
         GuideTopic.BELT -> "내 차 · 운전석 경고 · " + guideWarning(signals[GUIDE_BELT_WARNING], now).label +
             "\n운전석 버클 · " + guideBuckleLabel(signals["belt"], now)
         GuideTopic.WASHER -> "내 차 · 워셔액 부족 · " + guideWarning(signals[GUIDE_WASHER_WARNING], now).label
+        GuideTopic.WIPER -> wiperLabel(signals["wiper_front"], now)
         GuideTopic.DOOR -> "내 차 · " + guideDoorSummary(signals, now)
         GuideTopic.BEAMS -> "내 차 · 하향등 " + guideBeamLabel(signals[GUIDE_LOW_BEAM], now) +
             " · 상향등 " + guideBeamLabel(signals[GUIDE_HIGH_BEAM], now)

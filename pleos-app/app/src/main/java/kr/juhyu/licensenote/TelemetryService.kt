@@ -16,7 +16,7 @@ class TelemetryService : Service() {
         super.onCreate()
         val app = application as LicenseApp
         sdk = SdkTelemetry(this, app::accept) {
-            app.coordinator.ui.value.page == Page.GUIDE && canReview(app.signals.value, android.os.SystemClock.elapsedRealtime())
+            app.coordinator.ui.value.page in setOf(Page.GUIDE, Page.DOORS) && canReview(app.signals.value, android.os.SystemClock.elapsedRealtime())
         }
         sdk.start()
         if (BuildConfig.DEBUG) Log.i("LicenseService", "created; SDK connected to Activity/service lifetime")
@@ -31,7 +31,7 @@ class TelemetryService : Service() {
             try {
                 startForeground(1, Notification.Builder(this, "practice").setContentTitle("면허연습노트").setContentText("선택한 연습의 차량 기록을 남기고 있어요.").setSmallIcon(android.R.drawable.ic_menu_mylocation).build())
                 sdk.startLocationUpdates()
-                if (intent.getBooleanExtra("prepareCourseRoute", false)) sdk.openNavigation(true)
+                if (intent.getBooleanExtra("prepareCourseRoute", false)) CourseCatalog.find(intent.getStringExtra("courseId"))?.let { sdk.openNavigation(true, it) }
             } catch (error: SecurityException) {
                 (application as LicenseApp).coordinator.recordingFailed()
                 stopSelf()

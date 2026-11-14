@@ -78,16 +78,16 @@ private fun mercator(point: GeoPoint, zoom: Int): Pair<Double, Double> {
     return (point.lon + 180.0) / 360.0 * n to (0.5 - ln((1 + sine) / (1 - sine)) / (4 * PI)) * n
 }
 
-private fun viewport(size: IntSize): MapViewport? {
-    if (size.width <= 0 || size.height <= 0 || PracticeCourse.points.isEmpty()) return null
+private fun viewport(size: IntSize, route: PracticeRoute): MapViewport? {
+    if (size.width <= 0 || size.height <= 0 || route.points.isEmpty()) return null
     // Scale the native 256px tiles to keep the current viewport within 4 columns × 3 rows.
     val tilePixels = maxOf(256.0, size.width / 3.0, size.height / 2.0)
     val zoom = (19 downTo 1).firstOrNull { z ->
-        val points = PracticeCourse.points.map { mercator(it, z) }
+        val points = route.points.map { mercator(it, z) }
         (points.maxOf { it.first } - points.minOf { it.first }) * tilePixels <= (size.width - 80).coerceAtLeast(1) &&
             (points.maxOf { it.second } - points.minOf { it.second }) * tilePixels <= (size.height - 80).coerceAtLeast(1)
     } ?: 1
-    val points = PracticeCourse.points.map { mercator(it, zoom) }
+    val points = route.points.map { mercator(it, zoom) }
     val left = (points.maxOf { it.first } + points.minOf { it.first }) * tilePixels / 2 - size.width / 2.0
     val top = (points.maxOf { it.second } + points.minOf { it.second }) * tilePixels / 2 - size.height / 2.0
     val max = (1 shl zoom) - 1
@@ -154,7 +154,7 @@ private object CourseTiles {
 
 /** Real raster map, fixed course extent. The position marker only uses the supplied SDK point. */
 @Composable
-fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boolean = true) {
+fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boolean = true, route: PracticeRoute = CourseCatalog.full) {
     val textScale = LocalAppTextScale.current
     val context = LocalContext.current.applicationContext
     val uriHandler = LocalUriHandler.current
@@ -176,7 +176,7 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
         ColorFilter.colorMatrix(matrix)
     }
     var mapSize by remember { mutableStateOf(IntSize.Zero) }
-    val view = remember(mapSize) { viewport(mapSize) }
+    val view = remember(mapSize, route.id) { viewport(mapSize, route) }
     var load by remember(view) { mutableStateOf(MapLoad()) }
     LaunchedEffect(view) {
         val current = view ?: return@LaunchedEffect
@@ -240,9 +240,10 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
                     val bottom = ((tile.y + 1) * current.tilePixels - current.top).roundToInt()
                     drawImage(bitmap, dstOffset = IntOffset(x, y), dstSize = IntSize(right - x, bottom - y), colorFilter = tileFilter)
                 }
-                if (load.images.isNotEmpty()) {
+                // Keep the route sketch available when background tiles are unavailable.
+                run {
                     val path = Path()
-                    PracticeCourse.points.forEachIndexed { index, p ->
+                    route.points.forEachIndexed { index, p ->
                         val at = current.screen(p)
                         if (index == 0) path.moveTo(at.x, at.y) else path.lineTo(at.x, at.y)
                     }
@@ -257,12 +258,19 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
             }
             if (!load.finished || load.failed > 0) Column(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(paper.copy(alpha = .96f)).padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Text(if (load.failed > 0 && load.finished) "지도를 불러오지 못했어요" else "지도를 불러오고 있어요", color = ink, fontFamily = MapAsta, fontWeight = FontWeight.Medium, fontSize = (22 * textScale).sp)
-                if (load.finished && load.failed > 0) Text("연결 상태를 확인해 주세요", color = second, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
+                if (load.finished && load.failed > 0) Text("코스 약도를 표시해요", color = second, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(line))
-        TextButton(onClick = { runCatching { uriHandler.openUri("https://www.openstreetmap.org/copyright") } }, enabled = linksEnabled, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-            Text("© OpenStreetMap contributors", color = if (!linksEnabled) second else blue, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = { runCatching { uriHandler.openUri("https://www.openstreetmap.org/copyright") } }, enabled = linksEnabled, modifier = Modifier.heightIn(min = 76.dp)) {
+                Text("© OpenStreetMap contributors", color = if (!linksEnabled) second else blue, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
+            }
+            if (linksEnabled && route.routingSeconds != null) TextButton(onClick = {
+                runCatching { uriHandler.openUri("https://www.openstreetmap.org/fixthemap?mlat=${route.finish.lat}&mlon=${route.finish.lon}#map=17/${route.finish.lat}/${route.finish.lon}") }
+            }, modifier = Modifier.heightIn(min = 76.dp)) {
+                Text("지도 수정", color = blue, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
+            }
         }
     }
 }

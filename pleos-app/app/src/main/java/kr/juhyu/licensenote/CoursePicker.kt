@@ -1,0 +1,106 @@
+package kr.juhyu.licensenote
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+@Composable
+internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator) {
+    val p = LocalPalette.current
+    val recommendation = remember(ui.session) { CourseCatalog.recommendation(ui.session) }
+    var unavailable by rememberSaveable { mutableStateOf<String?>(null) }
+    val scroll = key(ui.courseStep) { rememberScrollState() }
+    if (ui.courseStep == CourseStep.LIST) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(if (wide) 24.dp else 16.dp)) {
+            Copy("어디서 연습할까요?", if (wide) 74 else 58, weight = FontWeight.SemiBold)
+            Copy("시간과 연습할 동작을 보고 골라 보세요.", if (wide) 40 else 34, p.second)
+            Spacer(Modifier.height(if (wide) 32.dp else 8.dp))
+            recommendation?.let {
+                CourseCard("지난 오답 다시 연습", "${it.name} · ${it.stats}", Modifier.fillMaxWidth(), true) { c.previewCourse(it) }
+            }
+            val choices = listOf("기본 도로주행" to CourseCatalog.full, "우회전 연습" to CourseCatalog.right,
+                "유턴 연습" to null, "혼잡한 도로" to null, "좌회전 연습" to CourseCatalog.left, "차로 변경 연습" to CourseCatalog.lane)
+            choices.chunked(if (wide) 2 else 1).forEach { pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    pair.forEach { (title, route) ->
+                        CourseCard(title, route?.stats ?: "검수된 경로 없음", Modifier.weight(1f),
+                            route != null && ui.selectedRouteId == route.id) {
+                            if (route == null) unavailable = title else c.previewCourse(route)
+                        }
+                    }
+                }
+            }
+            Link("원하는 코스가 있나요?", modifier = Modifier.fillMaxWidth()) { c.courseStep(CourseStep.REQUEST) }
+        }
+        unavailable?.let { title ->
+            AlertDialog(onDismissRequest = { unavailable = null }, title = { Copy(title, 39, weight = FontWeight.SemiBold) },
+                text = { Copy(if (title == "유턴 연습") "유턴이 허용되는 지점을 확인한 코스가 아직 없어요." else "교통 혼잡 수준을 확인한 코스가 아직 없어요.", 28, p.second) },
+                confirmButton = { Link("다른 코스 고르기") { unavailable = null } })
+        }
+        return
+    }
+
+    val destination = ui.courseStep == CourseStep.DESTINATION
+    val matches = remember(ui.submittedRequest) { ui.submittedRequest?.let(::matchCourseRequest) }
+    Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Copy("어떤 길을 연습할까요?", if (wide) 74 else 58, weight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Action("원하는 조건", secondary = destination, modifier = Modifier.weight(1f)) { c.courseStep(CourseStep.REQUEST) }
+            Action("목적지 지정", secondary = !destination, modifier = Modifier.weight(1f)) { c.courseStep(CourseStep.DESTINATION) }
+        }
+        if (destination) {
+            Copy("등록된 연습 도착점을 고르세요.", 32, p.second)
+            OutlinedTextField(value = ui.destinationQuery, onValueChange = { c.courseInput(it, true) }, singleLine = true,
+                label = { Copy("목적지 검색", 26) }, modifier = Modifier.fillMaxWidth())
+            val query = ui.destinationQuery.trim()
+            val destinations = CourseCatalog.all.filter { it.destination.contains(query, true) || it.name.contains(query, true) }
+            if (destinations.isEmpty()) Copy("일치하는 등록 목적지가 없어요. 다른 이름으로 찾아보세요.", 28, p.second)
+            destinations.forEach { route ->
+                CourseCard(route.destination, "${route.name} · ${route.stats}", Modifier.fillMaxWidth(), route.id == ui.selectedRouteId) { c.previewCourse(route) }
+            }
+        } else {
+            Copy("예를 들어 ‘우회전만 연습하고 싶어’라고 말해 보세요.", 31, p.second)
+            OutlinedTextField(value = ui.courseRequest, onValueChange = { c.courseInput(it, false) },
+                label = { Copy("원하는 연습 입력", 26) }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+            SpeechInputButton("말로 요청하기", onTranscript = c::submitCourseRequest, modifier = Modifier.fillMaxWidth())
+            Action("조건에 맞는 코스 찾기", modifier = Modifier.fillMaxWidth()) { c.submitCourseRequest(ui.courseRequest) }
+            matches?.let { result ->
+                if (result.message.isNotEmpty()) {
+                    Copy(result.message, 29, p.second)
+                    Link("요청을 지우고 다시 쓰기", modifier = Modifier.fillMaxWidth()) { c.courseInput("", false) }
+                }
+                result.routes.forEach { route ->
+                    CourseCard(route.name, route.stats, Modifier.fillMaxWidth(), route.id == ui.selectedRouteId) { c.previewCourse(route) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseCard(title: String, detail: String, modifier: Modifier, chosen: Boolean, click: () -> Unit) {
+    val p = LocalPalette.current
+    Surface(onClick = click, modifier = modifier.heightIn(min = 122.dp).semantics { selected = chosen },
+        color = if (chosen) p.tint else p.light, shape = RoundedCornerShape(22.dp),
+        border = if (chosen) BorderStroke(2.dp, p.blue) else null) {
+        Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Copy(title, 35, if (chosen) p.blue else p.ink, FontWeight.SemiBold)
+                Copy(detail, 28, p.second)
+            }
+            FigmaIcon(R.drawable.figma_back, 41, p.second, assetOverride = "course_chevron")
+        }
+    }
+}

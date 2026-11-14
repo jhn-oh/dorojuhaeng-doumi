@@ -153,6 +153,29 @@ def wait_signal(key, predicate, timeout=12):
         time.sleep(.3)
     raise AssertionError(f"Signal not received: {key}: {v}")
 
+def prepare_lane():
+    """Use the current lane course picker while retaining support for archived builds."""
+    for _ in range(9):
+        shown = {n.get("text") for n in nodes().iter("node")}
+        if "이 코스로 시작" in shown or "이 코스로 출발" in shown:
+            return "이 코스로 시작" if "이 코스로 시작" in shown else "이 코스로 출발"
+        if "어디서 연습할까요?" in shown or "코스 고르기" in shown and "차로 변경 연습" in shown:
+            for _ in range(6):
+                if click("차로 변경 연습", optional=True):
+                    break
+                before = {n.get("text") for n in nodes().iter("node")}
+                raw = adb("shell", "am", "instrument", "--user", user, "-w", "-e", "scroll", "forward", "kr.juhyu.licensenote.driver/.UiDriver")
+                assert "scrollAccepted=true" in raw and "INSTRUMENTATION_RESULT: error=" not in raw, raw
+                time.sleep(.35)
+                assert before != {n.get("text") for n in nodes().iter("node")}, "Course list did not scroll"
+            else:
+                raise AssertionError("Lane practice course missing from the actual picker")
+            continue
+        action = next((x for x in ("이미 운전면허가 있어요", "다음 연습 준비", "다음 코스 고르기", "직접 확인했어요", "직접 확인할게요", "벨트를 맸어요", "다음", "잘 보여요", "코스 보기", "모두 닫혔어요", "코스 고르기") if x in shown), None)
+        assert action, f"Cannot reach a lane course from {shown}"
+        click(action)
+    raise AssertionError("Lane course preparation did not complete")
+
 baseline = request("/vehicle/state")
 wait_signal("turn_subscription", lambda v: v.get("quality") == "VALID" and v.get("value") == "READY")
 old_location = device_json("sdk-state.json").get("location", {}).get("value")
@@ -163,16 +186,11 @@ try:
     request("/vehicle/turn-signal", mode="Off")
     adb("emu", "geo", "fix", "127.033", "37.482")
     adb("shell", "am", "start", "-n", "kr.juhyu.licensenote/.MainActivity")
-    wait_ui(any_text=("이미 운전면허가 있어요", "다음 코스 고르기", "직접 확인할게요", "벨트를 맸어요", "다음", "이 코스로 출발"))
-    click("이미 운전면허가 있어요", optional=True)
-    click("다음 코스 고르기", optional=True)
-    if click("직접 확인할게요", optional=True) or click("벨트를 맸어요", optional=True) or click("다음", optional=True):
-        click("잘 보여요")
-        click("코스 고르기")
-    capture("01-course", ("경로 미리보기", "이 코스로 출발"))
+    start_label = prepare_lane()
+    capture("01-course", ("경로 미리보기", start_label))
     previous_report = device_json("last-report.json", optional=True)
     previous_id = previous_report.get("id") if previous_report else None
-    click("이 코스로 출발")
+    click(start_label)
     started = wait_report(lambda r: r.get("id") != previous_id and r.get("phase") == "RECORDING", "a new recording session")
     sid = started['id']
     wait_signal("location", lambda v: v.get("origin") == "CALLBACK" and v.get("quality") == "VALID" and abs(float(v['value'].split(',')[0]) - 37.482) < .0001)
@@ -187,9 +205,9 @@ try:
     checks["native_navigation_foreground_collection"] = {"before": before['sampleCount'], "after": background['sampleCount']}
     adb("shell", "am", "start", "-n", "kr.juhyu.licensenote/.MainActivity")
     focus_visible_app_window()
-    capture("02-driving", ("운전 연습", "에뮬레이터 검증 코스"))
+    capture("02-driving", ("운전 연습",))
     visible = [n.get("text") for n in nodes().iter("node")]
-    assert "연습을 마칠게요" not in visible, "Moving UI exposed end/review control"
+    assert not {"연습을 마칠게요", "기록 종료"}.intersection(visible), "Moving UI exposed end/review control"
     checks["moving_review_locked"] = True
     for i in range(1, 17):
         adb("emu", "geo", "fix", "127.033", f"{37.482 + i * .0001:.6f}")
@@ -204,7 +222,7 @@ try:
     recorded = device_json("last-report.json")
     assert recorded.get("passage", {}).get("exitMs"), "No ordered SDK location passage"
     checks["ordered_location_passage"] = recorded['passage']
-    click("연습을 마칠게요")
+    click("기록 종료" if start_label == "이 코스로 시작" else "연습을 마칠게요")
     review = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "REVIEW", "saved review session")
     capture("03-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
     click("왼쪽으로 바꿨어요")
@@ -214,11 +232,24 @@ try:
     assert report['assessment']['score'] in (None, 93), report
     checks["confirmed_error"] = report['assessment']
     capture("04-result", ("연습 결과", "오답노트 보기"))
+    if click("휴대폰으로 보내기", optional=True):
+        capture("04a-phone-transfer", ("QR로 받기",))
+        click("QR로 받기")
+        capture("04a-result-qr", ("휴대폰 카메라로 찍어 주세요", "결과로 돌아가기"))
+        assert any(n.get("description") == "휴대폰 카메라로 읽는 QR 코드" for n in nodes().iter("node"))
+        click("결과로 돌아가기")
+        capture("04b-returned-result", ("연습 결과", "오답노트 보기"))
+        checks["phone_transfer_opened_and_returned"] = True
     click("오답노트 보기")
     capture("05-notebook", ("오답노트", "차로 변경 전 깜빡이"))
-    click("다음 연습에 반영하기")
+    click("차로 변경 다시 연습" if start_label == "이 코스로 시작" else "다음 연습에 반영하기")
     recommended = wait_report(lambda r: r.get("id") == sid and r.get("nextPractice") and r.get("revision", 0) > report['revision'], "saved next practice")
-    capture("06-next-course", ("차로 변경 복습", "이 코스로 출발"))
+    if start_label == "이 코스로 시작":
+        capture("06-recommended-preparation", ("출발 준비", "1 / 3"))
+        prepare_lane()
+        capture("06-next-course", ("경로 미리보기", start_label))
+    else:
+        capture("06-next-course", ("차로 변경 복습", start_label))
     checks["next_practice_saved"] = True
     sid = report['id']
     adb("shell", "am", "force-stop", "kr.juhyu.licensenote")

@@ -179,15 +179,24 @@ def click(text, optional=False):
 
 def finish_preparation():
     completed = []
-    for _ in range(6):
+    for _ in range(7):
         texts = visible(probe())
-        if "기록 시작" in texts:
+        if "어디서 연습할까요?" in texts:
+            if not (out / "00-course-selection.png").exists():
+                capture("00-course-selection", ("어디서 연습할까요?", "기본 도로주행"))
+            click("기본 도로주행")
+            continue
+        start_label = next((text for text in ("이 코스로 시작", "기록 시작") if text in texts), None)
+        if start_label:
             checks.setdefault("preparation_passes", []).append(completed)
-            return
+            return start_label
         for stage, anchor in (("belt", "1 / 3"), ("mirror", "2 / 3"), ("doors", "3 / 3")):
-            if args.ui_matrix and stage in args.ui_matrix_stages and anchor in texts and stage not in checks.get("ui_matrix", {}):
-                capture("00-preparation-" + stage, ("출발 준비", anchor))
-                verify_ui_matrix(stage)
+            if anchor in texts:
+                name = "00-preparation-" + stage
+                if not (out / (name + ".png")).exists():
+                    capture(name, ("출발 준비", anchor))
+                if stage not in checks.get("ui_matrix", {}):
+                    verify_ui_matrix(stage)
                 texts = visible(probe())
         button = next((text for text in ("직접 확인했어요", "벨트를 맸어요", "다음", "잘 보여요", "코스 보기", "모두 닫혔어요") if text in texts), None)
         assert button, f"Preparation cannot continue: {texts}"
@@ -564,7 +573,7 @@ def request_sdk_route():
                 bounds = list(map(int, re.findall(r"-?\d+", root.find("node").get("bounds", ""))))
             assert bounds[2]-bounds[0] == target_width, bounds
             last_bounds = bounds
-            capture("01-sdk-route-return", ("기록 시작",))
+            capture("01-sdk-route-return", ("경로 미리보기",))
         except Exception as error:
             evidence["restorationErrors"].append(str(error))
         evidence["capturedAtHostUtc"] = datetime.now(timezone.utc).isoformat()
@@ -625,17 +634,19 @@ try:
         wait_report(lambda r: r["id"] == previous["id"] and r["nextPractice"], "UI recommendation before the target practice")
     elif args.expect_target and previous and previous.get("nextPractice"):
         click("좌회전 다시 연습", optional=True)
-    click("이미 운전면허가 있어요", optional=True)
+    if "이미 운전면허가 있어요" in visible(probe()):
+        capture("00-welcome", ("이미 운전면허가 있어요",))
+        click("이미 운전면허가 있어요")
     click("다음 연습 준비", optional=True)
-    finish_preparation()
-    capture("01-course", ("기록 시작",))
+    start_label = finish_preparation()
+    capture("01-course", (start_label,))
     wait_for_map("course")
-    capture("01a-actual-map", ("기록 시작",))
+    capture("01a-actual-map", (start_label,))
     verify_ui_matrix("course")
     request_sdk_route()
     old = read_json("last-report.json", optional=True)
     old_id = old.get("id") if old else None
-    click("기록 시작")
+    click(start_label)
     started = wait_report(lambda r: r.get("id") != old_id and r.get("phase") == "RECORDING", "new recording session")
     sid = started["id"]
     assert started["courseId"] == "yangjae-turn-course-01" and started["rulesVersion"] >= 2, started
@@ -719,6 +730,14 @@ try:
     record_button = "기록 보기" if positive else "오답노트 보기"
     capture("04-result", ("연습 결과", record_button))
     verify_ui_matrix("result")
+    if click("휴대폰으로 보내기", optional=True):
+        capture("04a-phone-transfer", ("QR로 받기",))
+        click("QR로 받기")
+        capture("04a-result-qr", ("휴대폰 카메라로 찍어 주세요", "결과로 돌아가기"))
+        assert any(n.get("description") == "휴대폰 카메라로 읽는 QR 코드" for n in probe().iter("node")), "QR image missing"
+        click("결과로 돌아가기")
+        capture("04b-returned-result", ("연습 결과", record_button))
+        checks["phone_transfer_opened_and_returned"] = True
     click(record_button)
     capture("05-notebook", ("오답노트", "첫 번째 좌회전"))
     verify_ui_matrix("notebook")
@@ -746,9 +765,9 @@ try:
         checks["preparation_back_preserves_same_result_and_recommendation"] = preserved["id"]
         click("다음 연습 준비")
         capture("06c-preparation-required-again", ("출발 준비", "1 / 3"))
-        finish_preparation()
+        start_label = finish_preparation()
         assert checks["preparation_passes"][-1], "Recommendation bypassed per-practice preparation"
-        capture("06-next-course", ("기록 시작",))
+        capture("06-next-course", (start_label,))
         checks["next_practice_saved"] = True
         adb("shell", "am", "force-stop", "--user", user, "kr.juhyu.licensenote")
         adb("shell", "am", "start", "--user", user, "-n", "kr.juhyu.licensenote/.MainActivity")

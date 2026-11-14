@@ -30,7 +30,7 @@ required = [stage_text[args.stage], *args.expected_text]
 body_markers = {
     "belt": ("직접 확인했어요", "벨트를 맸어요", "다음"), "mirror": ("잘 보여요",),
     "doors": ("코스 보기", "모두 닫혔어요"),
-    "course": ("기록 시작",), "driving": (), "review": ("보지 못했어요",),
+    "course": ("이 코스로 시작", "기록 시작"), "driving": (), "review": ("보지 못했어요",),
     "result": ("오답노트 보기", "기록 보기"),
     "notebook": ("좌회전 다시 연습", "우회전 다시 연습", "두 회전 다시 연습", "다음 연습 준비", "새 연습 고르기"),
 }[args.stage]

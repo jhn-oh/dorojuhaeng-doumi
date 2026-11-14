@@ -68,9 +68,10 @@ data class PracticeSession(
 )
 data class Assessment(val status: String, val score: Int?, val checked: Int, val mistake: Boolean, val title: String, val reason: String)
 
-fun practiceTargetLabel(id: String): String {
-    val index = PracticeCourse.turns.indexOfFirst { it.id == id }
-    val turn = PracticeCourse.turns.getOrNull(index) ?: return "회전"
+fun practiceTargetLabel(id: String, route: PracticeRoute = CourseCatalog.full): String {
+    val index = route.turns.indexOfFirst { it.id == id }
+    val turn = route.turns.getOrNull(index) ?: return "회전"
+    if (route.turns.size == 1) return turn.direction.label
     return "${if (index == 0) "첫 번째" else "두 번째"} ${turn.direction.label}"
 }
 fun practiceTargetIds(s: PracticeSession): List<String> = when {
@@ -82,7 +83,7 @@ fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
     val results = PracticeEvaluator.turnAssessments(s)
     return s.practiceTargets.map { id ->
         val result = results.firstOrNull { it.event.id.endsWith(":$id") }
-        TargetOutcome(id, practiceTargetLabel(id), s.previousTargetStatuses[id],
+        TargetOutcome(id, practiceTargetLabel(id, s.practiceRoute), s.previousTargetStatuses[id],
             if (result?.event?.observation == Observation.UNANSWERED) "UNANSWERED" else result?.status ?: "NO_OPPORTUNITY")
     }
 }
@@ -120,7 +121,7 @@ fun bearingDegrees(from: GeoPoint, to: GeoPoint): Double {
 fun headingChangeDegrees(from: Double, to: Double): Double = ((to - from + 540) % 360) - 180
 
 /** One explicit session, public SDK input only; clocks are injected for deterministic tests. */
-class PracticeEngine(var session: PracticeSession, private val courseTurns: List<CourseTurn> = PracticeCourse.turns) {
+class PracticeEngine(var session: PracticeSession, private val courseTurns: List<CourseTurn> = session.practiceRoute.turns) {
     private var lastTick = session.startedAtMs - 1000
     private var lastPoint: GeoPoint? = null
     private var lastPointAt: Long? = null
@@ -144,7 +145,8 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
         if (session.phase != SessionPhase.RECORDING || now - lastTick < 800) return
         val gap = now - lastTick > 2500 || session.samples.size >= 50_000
         lastTick = now
-        val keys = listOf("belt", "turn", "turn_subscription", "steering", "steering_subscription", "speed", "gear", "location") + session.expectedDoors
+        val keys = listOf("belt", "turn", "turn_subscription", "steering", "steering_subscription", "speed", "gear", "location") + session.expectedDoors +
+            listOf("brake_pressed", "drive_mode", "odometer_km", "vehicle_usage_minutes").filter { signals.containsKey(it) }
         val next = keys.map { key ->
             val s = signals[key]
             RecordedSignal(now, key, s?.value, if (s.fresh(now)) "VALID" else "UNAVAILABLE", s?.source ?: "unavailable", s?.origin ?: "")
