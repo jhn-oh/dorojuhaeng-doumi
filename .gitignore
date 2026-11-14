@@ -2,6 +2,9 @@
 /*
 !/.gitignore
 !/.github/
+!/apk/
+/apk/*
+!/apk/도로주행도우미_release.apk
 !/pleos-app/
 !/앱기능구조.md
 !/outputs/
@@ -9,6 +12,7 @@
 !/outputs/hq-delivery/
 /outputs/hq-delivery/*
 !/outputs/hq-delivery/검수.md
+!/outputs/hq-delivery/공식기준_평가.md
 !/outputs/course-routing-20261114/
 /outputs/course-routing-20261114/*
 !/outputs/course-routing-20261114/검증.md
