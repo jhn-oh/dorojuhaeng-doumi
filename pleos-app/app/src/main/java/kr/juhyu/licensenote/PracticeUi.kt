@@ -528,9 +528,9 @@ private fun archivedAnswer(answer: Observation): String = when (answer) {
 private fun signalReading(status: String?, direction: TurnDirection): String {
     val side = if (direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"
     return when (status) {
-        "OBSERVED" -> "$side 켜짐 기록"
-        "SIGNAL_ABSENT", "OMISSION" -> "$side 켜짐 기록 없음"
-        "HELD" -> "신호 판단 보류"
+        "OBSERVED" -> "$side 깜빡이 켜짐"
+        "SIGNAL_ABSENT", "OMISSION" -> "깜빡이 계속 꺼짐"
+        "HELD" -> "판단 보류"
         else -> "구간 기록 없음"
     }
 }

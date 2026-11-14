@@ -10,7 +10,7 @@ android {
         applicationId = "kr.juhyu.licensenote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 11
+        versionCode = 12
         versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

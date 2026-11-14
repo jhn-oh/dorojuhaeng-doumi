@@ -368,11 +368,11 @@ object PracticeEvaluator {
                         if (turns.isEmpty()) "코스의 위치와 조향이 함께 확인된 회전 구간이 없어요." else "해당 구간의 신호가 부족하거나 일치하지 않아 복습을 보류했어요.")
                     else -> Assessment("VEHICLE_RECORDED", null, checked, false,
                         if (suggested) "다시 연습할 깜빡이" else "구간별 깜빡이 기록",
-                        "차량 위치와 조향으로 추정한 회전 구간 ${checked}곳에서 방향지시등을 확인했어요.", practiceSuggested = suggested)
+                        "위치와 조향으로 추정한 회전 ${checked}곳의 기록이에요.", practiceSuggested = suggested)
                 }
             }
         }
-        return if (unbuckledWhileMoving(s)) result.copy(reason = result.reason + " 주행 중 운전석 벨트 미착용 신호가 있었어요.") else result
+        return if (unbuckledWhileMoving(s)) result.copy(reason = result.reason + "\n주행 중 운전석 벨트 미착용 신호가 있었어요.") else result
     }
 
     private fun evaluateLaneSignals(s: PracticeSession, end: Long): Assessment {
