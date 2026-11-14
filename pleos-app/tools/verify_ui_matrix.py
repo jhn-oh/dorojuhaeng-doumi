@@ -444,7 +444,7 @@ def scroll_signature(root):
         # Digits change both the clock text and its intrinsic bounds. Other text/bounds remain strict.
         for parent in signature.iter():
             for child in list(parent):
-                if re.fullmatch(r"\d+분\s*\d+초(?:\s*기록 중)?", child.get("text", "").strip()):
+                if re.fullmatch(r"(?:기록 중\s*·\s*)?\d+분\s*\d+초(?:\s*기록 중|\s*·\s*.+ 모드)?", child.get("text", "").strip()):
                     parent.remove(child)
     return ET.tostring(signature, encoding="unicode")
 
