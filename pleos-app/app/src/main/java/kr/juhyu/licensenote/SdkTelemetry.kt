@@ -1,18 +1,6 @@
 package kr.juhyu.licensenote
 
 import ai.pleos.playground.vehicle.Vehicle
-import ai.pleos.playground.vehicle.api.model.area.SeatArea
-import ai.pleos.playground.vehicle.api.model.area.WindowArea
-import ai.pleos.playground.vehicle.api.model.area.DoorArea
-import ai.pleos.playground.vehicle.api.model.capability.AccessType
-import ai.pleos.playground.vehicle.api.model.capability.CapabilityConfig
-import ai.pleos.playground.vehicle.constant.area.SeatValue
-import ai.pleos.playground.vehicle.constant.area.WindowValue
-import ai.pleos.playground.vehicle.constant.area.TurnSignalValue
-import ai.pleos.playground.vehicle.constant.control.LightState
-import ai.pleos.playground.vehicle.constant.control.DrivingModeType
-import ai.pleos.playground.vehicle.constant.control.WiperState
-import ai.pleos.playground.vehicle.listener.*
 import ai.pleos.playground.location.fused.FusedLocation
 import ai.pleos.playground.location.fused.listener.FusedLocationListener
 import ai.pleos.playground.location.fused.model.LocationData
@@ -67,7 +55,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private val main = Handler(inputThread.looper)
     private val navigationThread = HandlerThread("PleosNavigation").apply { start() }
     private val navigationHandler = Handler(navigationThread.looper)
-    private val vehicle = Vehicle(context)
+    private val vehicleService = Intent().setClassName("ai.pleos.playground.service.vehicle",
+        "ai.pleos.playground.service.vehicle.VehicleService")
+    private var vehicleSession: PleosVehicleSession? = null
     private val fused = FusedLocation(context)
     private val navigation = NaviHelper(context)
     @Volatile private var collectingLocation = false
@@ -95,106 +85,16 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private var properties: CarPropertyManager? = null
     private var ux: CarUxRestrictionsManager? = null
     @Volatile private var closed = false
-    private var nextDiscoveryAt = 0L
-    private var beltSubscribed = false
-    private var turnSubscribed = false
-    private var doorsSubscribed = false
-    private var steeringSubscribed = false
-    private var beltPending = false
-    private var turnPending = false
-    private var doorsPending = false
-    private var steeringPending = false
-    private var beltAttempted = false
-    private var turnAttempted = false
-    private var steeringAttempted = false
-    private val registeredDoors = mutableSetOf<DoorArea>()
-    private val guideReadDue = mutableMapOf<String, Long>()
-    private val guideRequests = mutableMapOf<String, Long>()
-    private var frontWiper: WindowArea? = null
-    private var previousWiper: WiperState? = null
-    private var wiperOffAt = 0L
-    private val wiperListener = object : WiperStateListener {
-        override fun onWiperStateUpdated(state: WiperState?) = onInput { recordWiper(state, "CALLBACK") }
-        override fun onFailed(e: Exception) = onInput {
-            previousWiper = null
-            wiperOffAt = 0
-            releaseWiper()
-            fail("wiper_front", e)
-        }
-    }
-
-    private fun releaseWiper() {
-        frontWiper?.let { runCatching { vehicle.getWiper().unregisterWiperState(it, wiperListener) } }
-        frontWiper = null
-        previousWiper = null
-        wiperOffAt = 0
-    }
-
-    private fun recordWiper(state: WiperState?, origin: String) {
-        if (closed || frontWiper == null) return
-        val now = SystemClock.elapsedRealtime()
-        if (previousWiper == WiperState.OFF && state == WiperState.ON && now - wiperOffAt in 0..5000)
-            send("wiper_front_activation", wiperOffAt, "Vehicle/Wiper", origin)
-        if (state == WiperState.OFF) wiperOffAt = now
-        previousWiper = state
-        send("wiper_front", state?.name, "Vehicle/Wiper", origin)
-    }
-    @Volatile private var seatArea: SeatArea? = null
-    private val doors = java.util.concurrent.ConcurrentHashMap<DoorArea, DoorPositionListener>()
     private fun send(key: String, value: Any?, source: String, origin: String = "READ", sampleNs: Long? = null) {
         if (!closed) emit(key, Signal(value?.toString(), if (value == null) "UNAVAILABLE" else "VALID", source, SystemClock.elapsedRealtime(), origin, sampleNs = sampleNs))
     }
     private fun fail(key: String, error: Exception) {
         if (!closed) emit(key, Signal(quality = "ERROR", source = "SDK", receivedMs = SystemClock.elapsedRealtime(), error = error.javaClass.simpleName + ": " + error.message))
     }
-    private fun onInput(action: () -> Unit) {
-        if (closed) return
-        if (Looper.myLooper() == main.looper) action() else main.post { if (!closed) action() }
-    }
     private fun onNavigation(action: () -> Unit) {
         if (closed) return
         if (Looper.myLooper() == navigationHandler.looper) action()
         else navigationHandler.post { if (!closed) action() }
-    }
-    private fun beltFailed(error: Exception) = onInput {
-        beltSubscribed = false
-        val quality = when {
-            error is SecurityException || error.message == "ERROR_SECURITY_PERMISSION" -> "DENIED"
-            error is UnsupportedOperationException || error.message in setOf("ERROR_NOT_SUPPORTED_PROPERTY", "ERROR_NOT_SUPPORTED_AREA") -> "UNSUPPORTED"
-            else -> "ERROR"
-        }
-        emit("belt", Signal(quality = quality, source = "Vehicle/Seat", receivedMs = SystemClock.elapsedRealtime(), error = error.message))
-    }
-    private fun turnFailed(error: Exception) = onInput {
-        turnSubscribed = false
-        fail("turn", error)
-        fail("turn_subscription", error)
-    }
-    private fun steeringFailed(error: Exception) = onInput {
-        steeringSubscribed = false
-        fail("steering", error)
-        fail("steering_subscription", error)
-    }
-    private fun steeringAngle(angle: Float?, origin: String) {
-        // Vehicle 2.3.2 reports front-wheel degrees; left is negative, not steering-wheel rotation.
-        send("steering", angle?.takeIf { it.isFinite() }, "Vehicle/SteeringWheel front-wheel degrees", origin)
-    }
-    private fun doorFailed(area: DoorArea, error: Exception) = onInput {
-        registeredDoors.remove(area)
-        doorsSubscribed = false
-        fail("door:" + area.values.joinToString("+") { it.name }, error)
-    }
-    private val beltListener = object : SeatBeltBuckledStateListener {
-        override fun onSeatBeltBuckledStateUpdated(state: Boolean?) = send("belt", state, "Vehicle/Seat", "CALLBACK")
-        override fun onFailed(e: Exception) = beltFailed(e)
-    }
-    private val turnListener = object : TurnSignalStateListener {
-        override fun onTurnSignalStateUpdated(state: TurnSignalValue?) = send("turn", state?.name, "Vehicle/TurnSignal", "CALLBACK")
-        override fun onFailed(e: Exception) = turnFailed(e)
-    }
-    private val steeringListener = object : SteeringWheelAngleListener {
-        override fun onSteeringWheelAngleUpdated(angle: Float?) = steeringAngle(angle, "CALLBACK")
-        override fun onFailed(e: Exception) = steeringFailed(e)
     }
     private val locationListener = object : FusedLocationListener {
         override fun onChanged(location: LocationData?) {
@@ -375,7 +275,6 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
 
     fun start() {
-        vehicle.initialize()
         runCatching {
             if (fused.isSupported()) {
                 fused.initialize()
@@ -551,218 +450,25 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         runCatching { fused.unregisterFusedLocationCallback(locationListener) }
         send("location", null, "FusedLocation/not recording")
     }
-    private fun discover() {
-        if (!beltSubscribed && !beltPending) {
-            beltPending = true
-            runCatching {
-                vehicle.getSeat().checkSeatBeltBuckledCapabilities(onComplete = { config, areas -> onInput {
-                    beltPending = false
-                    send("belt_capability", "${config.accessType}:${areas.joinToString { it.values.joinToString { v -> v.name } }}", "Vehicle/Seat")
-                    if (config.accessType.name !in setOf("READ", "READ_WRITE")) {
-                        beltFailed(UnsupportedOperationException("Seat belt read is not supported"))
-                        return@onInput
-                    }
-                    seatArea = areas.firstOrNull { it.values.contentEquals(arrayOf(SeatValue.ROW_1_LEFT)) }
-                    seatArea?.let { area ->
-                        if (beltAttempted) runCatching { vehicle.getSeat().unregisterSeatBeltBuckledState(area, beltListener) }
-                        beltAttempted = true
-                        beltSubscribed = true
-                        runCatching { vehicle.getSeat().registerSeatBeltBuckledState(area, beltListener) }.onFailure { beltFailed(Exception(it)) }
-                    } ?: beltFailed(UnsupportedOperationException("Driver buckle area unavailable"))
-                } }, onFailed = { error -> onInput { beltPending = false; fail("belt_capability", error); beltFailed(error) } })
-            }.onFailure { beltPending = false; beltFailed(Exception(it)) }
-        }
-        if (!doorsSubscribed && !doorsPending) {
-            doorsPending = true
-            runCatching {
-                vehicle.getDoor().checkDoorPositionCapabilities(onComplete = { config, areas -> onInput {
-                    doorsPending = false
-                    send("door_capability", "${config.accessType}:${areas.keys.joinToString { it.values.joinToString { v -> v.name } }}", "Vehicle/Door")
-                    if (config.accessType.name !in setOf("READ", "READ_WRITE")) {
-                        doorsSubscribed = false
-                        fail("door_capability", UnsupportedOperationException("Door read is not supported"))
-                        return@onInput
-                    }
-                    for (area in areas.keys) {
-                        if (registeredDoors.contains(area)) continue
-                        val key = "door:" + area.values.joinToString("+") { it.name }
-                        val existing = doors[area]
-                        val listener = existing ?: object : DoorPositionListener {
-                            override fun onPositionUpdated(pos: Int?) = send(key, pos, "Vehicle/Door", "CALLBACK")
-                            override fun onFailed(e: Exception) = doorFailed(area, e)
-                        }
-                        doors[area] = listener
-                        if (existing != null) runCatching { vehicle.getDoor().unregisterDoorPosition(area, listener) }
-                        registeredDoors.add(area)
-                        runCatching { vehicle.getDoor().registerDoorPosition(area, listener) }.onFailure { doorFailed(area, Exception(it)) }
-                    }
-                    doorsSubscribed = areas.isNotEmpty() && registeredDoors.containsAll(areas.keys)
-                } }, onFailed = { error -> onInput { doorsPending = false; doorsSubscribed = false; fail("door_capability", error) } })
-            }.onFailure { doorsPending = false; doorsSubscribed = false; fail("door_capability", Exception(it)) }
-        }
-        if (!turnSubscribed && !turnPending) {
-            turnPending = true
-            send("turn_subscription", "PENDING", "Vehicle/TurnSignal subscription", "SUBSCRIPTION")
-            runCatching {
-                vehicle.getTurnSignal().checkTurnSignalStateCapabilities(onComplete = { config -> onInput {
-                    turnPending = false
-                    send("turn_capability", config.accessType.name, "Vehicle/TurnSignal")
-                    if (config.accessType.name !in setOf("READ", "READ_WRITE")) {
-                        turnFailed(UnsupportedOperationException("Turn signal read is not supported"))
-                        return@onInput
-                    }
-                    if (turnAttempted) runCatching { vehicle.getTurnSignal().unregisterTurnSignalState(turnListener) }
-                    turnAttempted = true
-                    turnSubscribed = true
-                    runCatching {
-                        vehicle.getTurnSignal().registerTurnSignalState(turnListener)
-                        if (turnSubscribed) send("turn_subscription", "READY", "Vehicle/TurnSignal subscription", "SUBSCRIPTION")
-                    }.onFailure { turnFailed(Exception(it)) }
-                } }, onFailed = { error -> onInput { turnPending = false; fail("turn_capability", error); turnFailed(error) } })
-            }.onFailure { turnPending = false; turnFailed(Exception(it)) }
-        }
-        if (!steeringSubscribed && !steeringPending) {
-            steeringPending = true
-            send("steering_subscription", "PENDING", "Vehicle/SteeringWheel subscription", "SUBSCRIPTION")
-            runCatching {
-                vehicle.getSteeringWheel().checkSteeringWheelAngleCapabilities(onComplete = { config, bounds -> onInput {
-                    steeringPending = false
-                    send("steering_capability", "${config.accessType}:${bounds.minValue},${bounds.maxValue}", "Vehicle/SteeringWheel front-wheel degrees")
-                    if (config.accessType.name !in setOf("READ", "READ_WRITE")) {
-                        steeringFailed(UnsupportedOperationException("Front-wheel steering angle read is not supported"))
-                        return@onInput
-                    }
-                    if (steeringAttempted) runCatching { vehicle.getSteeringWheel().unregisterSteeringWheelAngle(steeringListener) }
-                    steeringAttempted = true
-                    steeringSubscribed = true
-                    runCatching {
-                        vehicle.getSteeringWheel().registerSteeringWheelAngle(steeringListener)
-                        if (steeringSubscribed) send("steering_subscription", "READY", "Vehicle/SteeringWheel subscription", "SUBSCRIPTION")
-                    }.onFailure { steeringFailed(Exception(it)) }
-                } }, onFailed = { error -> onInput { steeringPending = false; fail("steering_capability", error); steeringFailed(error) } })
-            }.onFailure { steeringPending = false; steeringFailed(Exception(it)) }
-        }
-    }
-    private fun readGuideSignals(now: Long) {
-        val guide = guideVisible()
-        if (!guide && frontWiper != null) releaseWiper()
-        if (!guide && !collectingLocation) {
-            guideReadDue.clear()
-            guideRequests.clear()
+    private fun pollVehicle(now: Long) {
+        val available = context.packageManager.resolveService(vehicleService, 0) != null
+        if (!available) {
+            vehicleSession?.close()
+            vehicleSession = null
             return
         }
-        fun <T> read(key: String, source: String, request: ((T?) -> Unit, (Exception) -> Unit, () -> Unit) -> Unit) {
-            if (now < (guideReadDue[key] ?: 0L)) return
-            guideRequests[key] = now
-            guideReadDue[key] = now + 5000 // Retry if the SDK never completes the request.
-            fun finish(signal: Signal, retryMs: Long) = onInput {
-                if (guideRequests[key] == now) {
-                    guideRequests.remove(key)
-                    val received = SystemClock.elapsedRealtime()
-                    guideReadDue[key] = received + retryMs
-                    emit(key, signal.copy(source = source, receivedMs = received, origin = "READ"))
-                }
-            }
-            val failed: (Exception) -> Unit = { error ->
-                // The distributed 2.3.2 AAR exposes Exception; the public symbolic codes
-                // survive obfuscation in its message. Other errors stay indeterminate.
-                val unsupported = error.message == "ERROR_NOT_SUPPORTED_PROPERTY" || error.message == "ERROR_NOT_SUPPORTED_AREA"
-                finish(Signal(quality = if (unsupported) "UNSUPPORTED" else "ERROR", error = error.message),
-                    if (unsupported) 30000 else 4000)
-            }
-            try {
-                request({ value -> finish(Signal(value?.toString(), if (value == null) "UNAVAILABLE" else "VALID"), 1500) },
-                    failed, { finish(Signal(quality = "UNSUPPORTED"), 30000) })
-            } catch (e: Exception) { failed(e) }
+        val session = vehicleSession ?: PleosVehicleSession(Vehicle(context), main, emit, guideVisible) { collectingLocation }.also {
+            it.start()
+            vehicleSession = it
         }
-        fun <T> property(key: String, source: String,
-                capability: ((CapabilityConfig) -> Unit, (Exception) -> Unit) -> Unit,
-                get: ((T?) -> Unit, (Exception) -> Unit) -> Unit) {
-            read<T>(key, source) { value, failed, unsupported ->
-                capability({ config ->
-                    if (config.accessType in listOf(AccessType.READ, AccessType.READ_WRITE)) {
-                        try { get(value, failed) } catch (e: Exception) { failed(e) }
-                    } else unsupported()
-                }, failed)
-            }
-        }
-        if (collectingLocation) {
-            val brake = vehicle.getBrake()
-            property<Boolean>("brake_pressed", "Vehicle/Brake", brake::checkBrakePedalStatusCapabilities, brake::getCurrentBrakePedalStatus)
-            val mode = vehicle.getDrivingMode()
-            property<DrivingModeType>("drive_mode", "Vehicle/DrivingMode", mode::checkDrivingModeStateCapabilities, mode::getCurrentDrivingModeState)
-            val distance = vehicle.getOdometer()
-            property<Float>("odometer_km", "Vehicle/Odometer", distance::checkCurrentDistanceDrivenCapabilities, distance::getCurrentDistanceDriven)
-            property<Int>("vehicle_usage_minutes", "Vehicle/Odometer", distance::checkTripCumulativeDrivingTimeCapabilities, distance::getTripCumulativeDrivingTime)
-        }
-        if (!guide) return
-        val wiper = vehicle.getWiper()
-        read<WiperState>("wiper_front", "Vehicle/Wiper") { value, failed, unsupported ->
-            val checkFailed: (Exception) -> Unit = { error -> onInput { releaseWiper(); failed(error) } }
-            wiper.checkWiperStateCapabilities({ config, areas -> onInput {
-                if (!guideVisible()) return@onInput
-                val windshield = areas.keys.firstOrNull { it.values.contentEquals(arrayOf(WindowValue.FRONT_WINDSHIELD)) }
-                if (windshield == null || config.accessType !in listOf(AccessType.READ, AccessType.READ_WRITE)) {
-                    releaseWiper(); unsupported()
-                } else try {
-                    if (frontWiper == null) {
-                        frontWiper = windshield
-                        wiper.registerWiperState(windshield, wiperListener)
-                    }
-                    wiper.getCurrentWiperState(windshield, { state -> onInput { recordWiper(state, "READ"); value(state) } }, checkFailed)
-                } catch (e: Exception) { checkFailed(e) }
-            } }, checkFailed)
-        }
-        val safety = vehicle.getSafety()
-        read<Boolean>(GUIDE_BELT_WARNING, "Vehicle/Safety") { value, failed, unsupported ->
-            safety.checkSeatNotBuckledWarningCapabilities({ config, areas ->
-                val driver = areas.firstOrNull { it.values.contentEquals(arrayOf(SeatValue.ROW_1_LEFT)) }
-                if (driver != null && config.accessType in listOf(AccessType.READ, AccessType.READ_WRITE)) {
-                    try { safety.hasSeatBeltNotBuckledWarning(driver, value, failed) } catch (e: Exception) { failed(e) }
-                } else unsupported()
-            }, failed)
-        }
-        read<Boolean>(GUIDE_WASHER_WARNING, "Vehicle/Safety") { value, failed, unsupported ->
-            safety.checkLowWasherFluidWarningStateCapabilities({ config ->
-                if (config.accessType in listOf(AccessType.READ, AccessType.READ_WRITE)) {
-                    try { safety.hasLowWasherFluidWarning(value, failed) } catch (e: Exception) { failed(e) }
-                } else unsupported()
-            }, failed)
-        }
-        val light = vehicle.getLight()
-        for (key in listOf(GUIDE_LOW_BEAM, GUIDE_HIGH_BEAM)) {
-            read<LightState>(key, "Vehicle/Light") { value, failed, unsupported ->
-                val checked: (CapabilityConfig, List<LightState>) -> Unit = { config, _ ->
-                    if (config.accessType == AccessType.READ || config.accessType == AccessType.READ_WRITE) {
-                        try {
-                            if (key == GUIDE_LOW_BEAM) light.getCurrentLowBeamLightState(value, failed)
-                            else light.getCurrentHighBeamLightState(value, failed)
-                        } catch (e: Exception) { failed(e) }
-                    } else unsupported()
-                }
-                if (key == GUIDE_LOW_BEAM) light.checkLowBeamLightStateCapabilities(checked, failed)
-                else light.checkHighBeamLightStateCapabilities(checked, failed)
-            }
-        }
+        session.poll(now)
     }
+
     private val poll = object : Runnable {
         override fun run() {
             if (closed) return
             val now = SystemClock.elapsedRealtime()
-            readGuideSignals(now)
-            if (now >= nextDiscoveryAt && (!beltSubscribed || !doorsSubscribed || !turnSubscribed || !steeringSubscribed)) {
-                nextDiscoveryAt = now + 5000
-                discover()
-            }
-            seatArea?.let { area -> runCatching { vehicle.getSeat().getCurrentSeatBeltBuckledState(area, { send("belt", it, "Vehicle/Seat") }, { beltFailed(it) }) }.onFailure { beltFailed(Exception(it)) } }
-            for (area in doors.keys.toList()) {
-                val key = "door:" + area.values.joinToString("+") { it.name }
-                runCatching { vehicle.getDoor().getCurrentDoorPosition(area, { send(key, it, "Vehicle/Door") }, { doorFailed(area, it) }) }.onFailure { doorFailed(area, Exception(it)) }
-            }
-            runCatching { vehicle.getTurnSignal().getCurrentTurnSignalState({ send("turn", it?.name, "Vehicle/TurnSignal") }, { turnFailed(it) }) }.onFailure { turnFailed(Exception(it)) }
-            if (steeringSubscribed) runCatching {
-                vehicle.getSteeringWheel().getCurrentSteeringWheelAngle({ steeringAngle(it, "READ") }, { steeringFailed(it) })
-            }.onFailure { steeringFailed(Exception(it)) }
+            pollVehicle(now)
             properties?.let { p ->
                 for ((id, key) in listOf(VehiclePropertyIds.PERF_VEHICLE_SPEED to "speed", VehiclePropertyIds.GEAR_SELECTION to "gear")) {
                     runCatching {
@@ -778,19 +484,14 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         send("turn_subscription", null, "Vehicle/TurnSignal disconnected", "SUBSCRIPTION")
         send("steering_subscription", null, "Vehicle/SteeringWheel disconnected", "SUBSCRIPTION")
         closed = true
-        releaseWiper()
         main.removeCallbacksAndMessages(null)
-        runCatching { seatArea?.let { vehicle.getSeat().unregisterSeatBeltBuckledState(it, beltListener) } }
-        doors.forEach { (area, listener) -> runCatching { vehicle.getDoor().unregisterDoorPosition(area, listener) } }
-        runCatching { vehicle.getTurnSignal().unregisterTurnSignalState(turnListener) }
-        runCatching { vehicle.getSteeringWheel().unregisterSteeringWheelAngle(steeringListener) }
+        main.post { vehicleSession?.close(); vehicleSession = null }
         runCatching { fused.unregisterFusedLocationCallback(locationListener); fused.release() }
         navigationHandler.removeCallbacksAndMessages(null)
         // A remote navigation call may stall: releasing it must not hold up the vehicle collector.
         navigationHandler.post { runCatching { navigation.removeListener(navigationListener); navigation.release() } }
         navigationThread.quitSafely()
         runCatching { properties?.unregisterCallback(carListener); ux?.unregisterListener(); car?.disconnect() }
-        vehicle.release()
         inputThread.quitSafely()
     }
 }
