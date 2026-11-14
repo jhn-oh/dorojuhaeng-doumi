@@ -50,6 +50,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -180,20 +181,22 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
     var load by remember(view) { mutableStateOf(MapLoad()) }
     LaunchedEffect(view) {
         val current = view ?: return@LaunchedEffect
-        try {
-            withTimeout(30_000) {
-                for (tile in current.tiles) {
-                    ensureActive()
-                    try {
-                        val image = CourseTiles.image(context, tile)
-                        load = load.copy(images = load.images + (tile to image), completed = load.completed + 1)
-                    } catch (error: CancellationException) { throw error }
-                    catch (_: Exception) { load = load.copy(completed = load.completed + 1, failed = load.failed + 1) }
+        repeat(2) { attempt ->
+            if (attempt > 0) delay(4_000)
+            try {
+                withTimeout(35_000) {
+                    for (tile in current.tiles.filterNot { it in load.images }) {
+                        ensureActive()
+                        try {
+                            val image = CourseTiles.image(context, tile)
+                            load = load.copy(images = load.images + (tile to image), completed = load.completed + 1)
+                        } catch (error: CancellationException) { throw error }
+                        catch (_: Exception) { /* Retain the course overlay when the tile or cache is unavailable. */ }
+                    }
                 }
-                load = load.copy(finished = true)
-            }
-        } catch (_: TimeoutCancellationException) {
+            } catch (_: TimeoutCancellationException) { /* Keep successfully decoded tiles. */ }
             load = load.copy(finished = true, failed = current.tiles.size - load.images.size)
+            if (load.failed == 0) return@LaunchedEffect
         }
     }
     val status = when {
@@ -257,8 +260,11 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
                 }
             }
             if (!load.finished || load.failed > 0) Column(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(paper.copy(alpha = .96f)).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text(if (load.failed > 0 && load.finished) "지도를 불러오지 못했어요" else "지도를 불러오고 있어요", color = ink, fontFamily = MapAsta, fontWeight = FontWeight.Medium, fontSize = (22 * textScale).sp)
-                if (load.finished && load.failed > 0) Text("코스 약도를 표시해요", color = second, fontFamily = MapAsta, fontSize = (20 * textScale).sp)
+                Text(when {
+                    !load.finished -> "지도를 불러오고 있어요"
+                    load.images.isEmpty() -> "연습 코스 약도"
+                    else -> "일부 지도 영역을 불러오지 못했어요"
+                }, color = ink, fontFamily = MapAsta, fontWeight = FontWeight.Medium, fontSize = (22 * textScale).sp)
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(line))

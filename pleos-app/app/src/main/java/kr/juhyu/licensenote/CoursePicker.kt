@@ -1,6 +1,7 @@
 package kr.juhyu.licensenote
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,8 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -64,13 +64,13 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
             OutlinedTextField(value = ui.destinationQuery, onValueChange = { c.courseInput(it, true) }, singleLine = true,
                 label = { Copy("목적지 검색", 26) }, modifier = Modifier.fillMaxWidth())
             val query = ui.destinationQuery.trim()
-            val destinations = CourseCatalog.all.filter { it.destination.contains(query, true) || it.name.contains(query, true) }
+            val destinations = CourseCatalog.destinations(query)
             if (destinations.isEmpty()) Copy("일치하는 등록 목적지가 없어요. 다른 이름으로 찾아보세요.", 28, p.second)
             destinations.forEach { route ->
-                CourseCard(route.destination, "${route.name} · ${route.stats}", Modifier.fillMaxWidth(), route.id == ui.selectedRouteId) { c.previewCourse(route) }
+                CourseCard(route.destination, "${route.departure} 출발 · ${route.stats}", Modifier.fillMaxWidth(), route.id == ui.selectedRouteId) { c.previewCourse(route) }
             }
         } else {
-            Copy("예를 들어 ‘우회전만 연습하고 싶어’라고 말해 보세요.", 31, p.second)
+            Copy("‘우회전만 연습하고 싶어’ 또는 ‘넓은 도로에서 고속도로 빼고 약 30분’처럼 요청해 보세요.", 31, p.second)
             OutlinedTextField(value = ui.courseRequest, onValueChange = { c.courseInput(it, false) },
                 label = { Copy("원하는 연습 입력", 26) }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
             SpeechInputButton("말로 요청하기", onTranscript = c::submitCourseRequest, modifier = Modifier.fillMaxWidth())
@@ -91,10 +91,10 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
 @Composable
 private fun CourseCard(title: String, detail: String, modifier: Modifier, chosen: Boolean, click: () -> Unit) {
     val p = LocalPalette.current
-    Surface(onClick = click, modifier = modifier.heightIn(min = 122.dp).semantics { selected = chosen },
+    Surface(modifier = modifier.heightIn(min = 122.dp),
         color = if (chosen) p.tint else p.light, shape = RoundedCornerShape(22.dp),
         border = if (chosen) BorderStroke(2.dp, p.blue) else null) {
-        Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxWidth().heightIn(min = 122.dp).selectable(selected = chosen, role = Role.Button, onClick = click).padding(24.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f)) {
                 Copy(title, 35, if (chosen) p.blue else p.ink, FontWeight.SemiBold)

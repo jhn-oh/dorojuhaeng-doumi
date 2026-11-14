@@ -49,6 +49,15 @@ public class UiDriver extends Instrumentation {
             result.putString("xml64", Base64.encodeToString(writer.toString().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
             String text = args.getString("click");
             String scroll = args.getString("scroll");
+            String input = args.getString("input");
+            if (input != null) {
+                if (text != null || scroll != null) throw new IllegalArgumentException("Use a single UI action");
+                AccessibilityNodeInfo field = findEditable(root);
+                if (field == null) throw new IllegalStateException("No visible editable app field");
+                Bundle value = new Bundle();
+                value.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, input);
+                if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, value)) throw new IllegalStateException("Edit rejected");
+            }
             if (text != null && scroll != null) throw new IllegalArgumentException("Choose click or scroll in one request");
             if (text != null) {
                 AccessibilityNodeInfo node = find(root, text);
@@ -82,6 +91,18 @@ public class UiDriver extends Instrumentation {
     private AccessibilityNodeInfo find(AccessibilityNodeInfo node, String text) {
         if (node.isVisibleToUser() && node.getText() != null && text.contentEquals(node.getText())) return node;
         for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo child = node.getChild(i); if (child != null) { AccessibilityNodeInfo match = find(child, text); if (match != null) return match; } }
+        return null;
+    }
+    private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
+        if (!node.isVisibleToUser()) return null;
+        if (node.isEditable() && node.isEnabled()) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo field = findEditable(child);
+                if (field != null) return field;
+            }
+        }
         return null;
     }
     private void collectScrollable(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {

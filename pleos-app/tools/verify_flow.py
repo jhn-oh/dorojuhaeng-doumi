@@ -161,7 +161,11 @@ def prepare_lane():
             return "이 코스로 시작" if "이 코스로 시작" in shown else "이 코스로 출발"
         if "어디서 연습할까요?" in shown or "코스 고르기" in shown and "차로 변경 연습" in shown:
             for _ in range(6):
-                if click("차로 변경 연습", optional=True):
+                card = next((n for n in nodes().iter("node") if n.get("text") == "차로 변경 연습"), None)
+                if card is not None:
+                    x1, y1, x2, y2 = map(int, re.findall(r"-?\d+", card.get("bounds")))
+                    adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
+                    time.sleep(.7)
                     break
                 before = {n.get("text") for n in nodes().iter("node")}
                 raw = adb("shell", "am", "instrument", "--user", user, "-w", "-e", "scroll", "forward", "kr.juhyu.licensenote.driver/.UiDriver")

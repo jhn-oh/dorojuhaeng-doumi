@@ -74,10 +74,13 @@ class DriveHelpTest {
         val session = PracticeSession(startedAtMs = 5000, startedWallMs = 5000, expectedDoors = emptyList(), rulesVersion = 2)
         assertEquals("기본 내비 안내", driveCue(session, signals, now).source)
         for (bad in listOf("course_tbt" to signal("wrong|TURN_LEFT|56"), "course_tbt" to signal("${route.id}|TURN_RIGHT|56"),
-            "course_tbt" to signal("${route.id}|TURN_LEFT|300"), "navigation_location" to signal("37.4127,127.0946"),
+            "course_tbt" to signal("${route.id}|TURN_LEFT|300"),
             "course_tbt" to signal("${route.id}|TURN_LEFT|56").copy(receivedMs=6000))) {
             assertTrue(driveCue(session, signals + bad, now).source.startsWith("선택 코스"))
         }
+        val conflicting = driveCue(session, signals + ("navigation_location" to signal("37.4127,127.0946")), now)
+        assertNull(conflicting.turnKey)
+        assertEquals("정차 후 경로를 확인하세요", conflicting.title)
     }
     @Test fun vehicleCounterSummaryRequiresConsistentStartAndEndSamples() {
         fun sample(t: Long, value: String) = RecordedSignal(t, "odometer_km", value, "VALID", "Vehicle/Odometer", "READ")

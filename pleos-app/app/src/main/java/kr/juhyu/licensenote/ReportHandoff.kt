@@ -37,7 +37,15 @@ internal class ReceiverApi(address: String, debug: Boolean) {
         require(it.userInfo == null && it.ref == null && it.query == null && it.host.isNotBlank())
         require(it.protocol == "https" || (debug && it.protocol == "http" && it.host == "127.0.0.1"))
     }
-    fun pair() = request("/v1/pair", "", JSONObject())
+    fun pair(): JSONObject {
+        val response = request("/v1/pair", "", JSONObject())
+        val id = response.getString("id")
+        val receiver = URL(response.getString("url"))
+        require(id.matches(Regex("[A-Za-z0-9_-]{32}")) && response.getString("car").matches(Regex("[A-Za-z0-9_-]{32}")))
+        require(receiver.protocol == base.protocol && receiver.host == base.host && receiver.port == base.port)
+        require(receiver.userInfo == null && receiver.query == null && receiver.ref?.matches(Regex("""$id\.[A-Za-z0-9_-]{32}""")) == true)
+        return response
+    }
     fun action(pair: JSONObject, name: String, body: JSONObject? = null): JSONObject {
         val id = pair.getString("id")
         require(id.matches(Regex("[A-Za-z0-9_-]{32}")))
@@ -57,7 +65,18 @@ internal class ReceiverApi(address: String, debug: Boolean) {
                 connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
             if (connection.responseCode !in 200..299) throw IOException("HTTP " + connection.responseCode)
-            return JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            val response = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                val text = StringBuilder()
+                val buffer = CharArray(1024)
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    if (text.length + count > 8192) throw IOException("Unexpected receiver response")
+                    text.append(buffer, 0, count)
+                }
+                text.toString()
+            }
+            return JSONObject(response)
         } finally { connection.disconnect() }
     }
 }

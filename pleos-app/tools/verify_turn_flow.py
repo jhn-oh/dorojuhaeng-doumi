@@ -13,6 +13,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -20,6 +21,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from replay_nmea import nmea_pair
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--adb", default=r"C:\AndroidSDK\platform-tools\adb.exe")
@@ -40,6 +42,8 @@ parser.add_argument("--expect-target", help="Assert that this course turn is an 
 parser.add_argument("--expect-previous-session", help="Assert the actual previous session linked by the new recording")
 parser.add_argument("--restore-lat", type=float)
 parser.add_argument("--restore-lon", type=float)
+parser.add_argument("--continuous-nmea", action="store_true", help="Supply timestamped GGA/RMC once per second, including parked periods on -no-passive-gps AVDs")
+parser.add_argument("--record-map-fallback", action="store_true", help="Also exercise the driving flow when the app reports raster fallback; save the reason separately from fully loaded maps")
 args = parser.parse_args()
 args.ui_matrix_stages = tuple(stage.strip() for stage in args.ui_matrix_stages.split(','))
 if not args.ui_matrix_stages or len(set(args.ui_matrix_stages)) != len(args.ui_matrix_stages) or set(args.ui_matrix_stages)-{"belt", "mirror", "doors", "course", "driving", "review", "result", "notebook"}:
@@ -184,7 +188,11 @@ def finish_preparation():
         if "어디서 연습할까요?" in texts:
             if not (out / "00-course-selection.png").exists():
                 capture("00-course-selection", ("어디서 연습할까요?", "기본 도로주행"))
-            click("기본 도로주행")
+            node = next(n for n in probe().iter("node") if n.get("text") == "기본 도로주행")
+            x1, y1, x2, y2 = map(int, re.findall(r"-?\d+", node.get("bounds")))
+            adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
+            checks["course_selected_from_live_label_bounds"] = "기본 도로주행"
+            time.sleep(.7)
             continue
         start_label = next((text for text in ("이 코스로 시작", "기록 시작") if text in texts), None)
         if start_label:
@@ -248,7 +256,11 @@ def wait_for_map(name, timeout=40):
         texts = visible(root) | {n.get("description") for n in root.iter("node") if n.get("description")}
         completed = next((text for text in texts if text.startswith("지도 준비 완료 ")), None)
         failed = next((text for text in texts if text.startswith("지도 불러오기 실패 ")), None)
-        assert failed is None, failed
+        if failed:
+            if args.record_map_fallback:
+                checks.setdefault("map_fallback", {})[name] = failed
+                return
+            raise AssertionError(failed)
         if completed:
             match = re.match(r"지도 준비 완료 (\d+)/(\d+)", completed)
             assert match and int(match.group(1)) == int(match.group(2)) and int(match.group(1)) > 0, completed
@@ -596,8 +608,32 @@ def distance(a, b):
     return math.hypot((b[0]-a[0])*111195, (b[1]-a[1])*111195*math.cos(math.radians((a[0]+b[0])/2)))
 
 
-def gps(point):
-    adb("emu", "geo", "fix", f"{point[1]:.7f}", f"{point[0]:.7f}")
+fix_to_send = None
+last_nmea_error = []
+stop_nmea = threading.Event()
+
+def send_nmea(point, speed, heading):
+    for raw in nmea_pair(datetime.now(timezone.utc), point, speed, heading, 12, 8):
+        assert "OK" in adb("emu", "geo", "nmea", raw).splitlines(), "Emulator rejected NMEA sentence"
+
+def stream_nmea():
+    try:
+        while not stop_nmea.is_set():
+            started_at = time.monotonic()
+            sample = fix_to_send
+            if sample:
+                send_nmea(*sample)
+            stop_nmea.wait(max(.01, 1 - (time.monotonic() - started_at)))
+    except BaseException as error:
+        last_nmea_error.append(str(error))
+
+def gps(point, speed=0, heading=0):
+    global fix_to_send
+    if args.continuous_nmea:
+        assert not last_nmea_error, last_nmea_error
+        fix_to_send = (point, speed, heading)
+    else:
+        adb("emu", "geo", "fix", f"{point[1]:.7f}", f"{point[0]:.7f}")
 
 
 def turn_results(report):
@@ -616,6 +652,9 @@ restore_errors = []
 replay = []
 checks["steering_console_to_sdk_sign"] = args.console_to_sdk_sign
 checks["left_signal_input"] = args.left_signal
+nmea_thread = threading.Thread(target=stream_nmea, daemon=True) if args.continuous_nmea else None
+if nmea_thread:
+    nmea_thread.start()
 try:
     request("/vehicle/controls", speed=0, accelerator=0, brake=0, steering=0)
     request("/vehicle/gear", gear="Park")
@@ -658,7 +697,26 @@ try:
         assert started.get("previousSessionId") == args.expect_previous_session, started
         checks["previous_session_link"] = started["previousSessionId"]
     wait_signal("location", lambda s: s.get("origin") == "CALLBACK" and abs(float(s["value"].split(',')[0])-ROUTE[0][0]) < .00005)
-    if args.skip_native_background_check:
+    if start_label == "이 코스로 시작":
+        # The current UI automatically opens native navigation; restore the app from the
+        # launcher once the SDK's own foreground and fallback requests have completed.
+        native = "ai.umos.maps.android.navigation.app"
+        deadline = time.monotonic() + 35
+        while True:
+            windows = adb("shell", "dumpsys", "window", "displays")
+            focused = any(native in line and "mCurrentFocus=" in line for line in windows.splitlines())
+            if focused or time.monotonic() >= deadline:
+                break
+            time.sleep(.5)
+        checks["native_automatic_foreground"] = {"observed": focused}
+        if focused:
+            (out / "01b-native-auto.png").write_bytes(subprocess.check_output([args.adb, "-s", args.serial, "exec-out", "screencap", "-p"], timeout=20))
+        before = read_json("last-report.json")
+        time.sleep(3)
+        after = wait_report(lambda r: r["id"] == sid and r["sampleCount"] > before["sampleCount"], "collection after automatic native launch")
+        checks["native_automatic_foreground"].update({"beforeSamples":before["sampleCount"],"afterSamples":after["sampleCount"]})
+        adb("shell", "am", "start", "--user", user, "-n", "kr.juhyu.licensenote/.MainActivity")
+    elif args.skip_native_background_check:
         checks.setdefault("skipped_checks", {})["native_navigation_foreground_collection"] = {
             "skip": True, "reason": "Explicit --skip-native-background-check: preserve the existing user split; native foreground collection was not rechecked in this run."
         }
@@ -685,6 +743,7 @@ try:
     assert "기록 종료" not in visible(probe()), "Moving UI exposed review action"
     checks["moving_review_locked"] = True
     for segment, (a, b) in enumerate(zip(ROUTE, ROUTE[1:])):
+        heading = math.degrees(math.atan2((b[1]-a[1]) * math.cos(math.radians(a[0])), b[0]-a[0])) % 360
         steps = max(1, math.ceil(distance(a, b)/6))
         for i in range(1, steps+1):
             point = (a[0]+(b[0]-a[0])*i/steps, a[1]+(b[1]-a[1])*i/steps)
@@ -696,13 +755,15 @@ try:
                 steering, signal = 0, "Off"
             request("/vehicle/controls", speed=18, accelerator=0, brake=0, steering=steering)
             request("/vehicle/turn-signal", mode=signal)
-            gps(point)
+            gps(point, 18, heading)
             replay.append({"hostUtc": datetime.now(timezone.utc).isoformat(), "lat":point[0], "lon":point[1], "steeringConsoleDeg":steering, "signal":signal})
             time.sleep(1.15)
         if segment == 1:
             wait_for_map("after_left")
             capture("02b-map-after-left", ("운전 연습",))
             checks["sdk_map_position_after_left"] = wait_signal("location", lambda s: abs(float(s["value"].split(',')[0])-ROUTE[2][0]) < .00005)
+    if args.continuous_nmea:
+        gps(ROUTE[-1])
     time.sleep(3)
     request("/vehicle/controls", speed=0, accelerator=0, brake=0, steering=0)
     request("/vehicle/gear", gear="Park")
@@ -812,7 +873,14 @@ finally:
         except Exception as error:
             restore_errors.append(path + ": " + str(error))
     try:
-        gps(restore_fix)
+        if nmea_thread:
+            stop_nmea.set()
+            nmea_thread.join(timeout=35)
+            assert not nmea_thread.is_alive(), "GPS sender did not finish before restoring input"
+            send_nmea(restore_fix, 0, 0)
+            assert not last_nmea_error, last_nmea_error
+        else:
+            gps(restore_fix)
     except Exception as error:
         restore_errors.append("GPS restore: " + str(error))
     checks["restoration_complete"] = not restore_errors

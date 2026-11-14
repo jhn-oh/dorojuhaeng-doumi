@@ -60,6 +60,14 @@ internal fun driveCue(session: PracticeSession, signals: Map<String, Signal>, no
     val heading = if (signals["speed"].fresh(now) && (signals["speed"]?.value?.toDoubleOrNull() ?: 0.0) > 2.0)
         fields.getOrNull(2)?.toDoubleOrNull()?.takeIf { it in 0.0..360.0 } else null
     val practice = nextPracticeCue(session.practiceRoute, point, fields.getOrNull(3)?.toDoubleOrNull() ?: Double.NaN, heading)
+    val nativeFix = signals["navigation_location"]?.takeIf { it.fresh(now, 6500) && it.receivedMs >= session.startedAtMs }
+    val coordinates = nativeFix?.value?.split(',', limit = 3)
+    val lat = coordinates?.getOrNull(0)?.toDoubleOrNull()?.takeIf { it.isFinite() && it in -90.0..90.0 }
+    val lon = coordinates?.getOrNull(1)?.toDoubleOrNull()?.takeIf { it.isFinite() && it in -180.0..180.0 }
+    val separation = if (lat != null && lon != null) distanceMeters(point, GeoPoint(lat, lon)) else null
+    if (separation != null && separation > 100 && signals["navigation_status"]?.value == "ROUTE_DRIVE") {
+        return DriveCue("정차 후 경로를 확인하세요", "차량과 기본 내비 위치가 달라요")
+    }
     // The first provider TBT is usable only when the provider independently sees the same car,
     // active destination/waypoints, direction, and nearby course distance.
     val native = signals["course_tbt"]?.takeIf { it.fresh(now, 3500) && it.receivedMs >= session.startedAtMs }?.value?.split('|') ?: return practice
@@ -67,10 +75,7 @@ internal fun driveCue(session: PracticeSession, signals: Map<String, Signal>, no
     val status = signals["navigation_status"]
     if (route?.startsWith("true,") != true || status?.quality != "VALID" || status.value != "ROUTE_DRIVE" ||
         native.size != 3 || native[0] != session.courseId || native[1] != "TURN_${practice.turnKey}") return practice
-    val nativePosition = signals["navigation_location"]?.takeIf { it.fresh(now, 3500) && it.receivedMs >= session.startedAtMs }?.value?.split(',') ?: return practice
-    val lat = nativePosition.getOrNull(0)?.toDoubleOrNull() ?: return practice
-    val lon = nativePosition.getOrNull(1)?.toDoubleOrNull() ?: return practice
-    if (!lat.isFinite() || !lon.isFinite() || distanceMeters(point, GeoPoint(lat, lon)) > 18) return practice
+    if (!nativeFix.fresh(now, 3500) || separation == null || separation > 18) return practice
     val distance = native[2].toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..3000.0 } ?: return practice
     val estimate = practice.metres ?: return practice
     if (abs(distance-estimate) > maxOf(15.0, 0.20*estimate)) return practice

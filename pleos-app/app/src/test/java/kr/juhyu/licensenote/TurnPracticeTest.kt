@@ -5,6 +5,15 @@ import org.junit.Test
 import kotlin.math.*
 
 class TurnPracticeTest {
+    @Test fun onlyTurnsOverlappingARecordedGapAreHeldInNewSessions() {
+        val base = evaluatedFixture()
+        val subscriptions = base.samples.map { it.copy(key = "turn_subscription", value = "READY") }
+        val session = base.copy(rulesVersion = 3, samples = base.samples + subscriptions, dataGap = true, evidenceGaps = listOf(EvidenceGap(4200, 8300)))
+        assertEquals(listOf("HELD", "OBSERVED"), PracticeEvaluator.turnAssessments(session).map { it.status })
+        assertEquals(listOf("OMISSION", "OBSERVED"), PracticeEvaluator.turnAssessments(session.copy(evidenceGaps = listOf(EvidenceGap(23000, 24000)))).map { it.status })
+        assertTrue(PracticeEvaluator.turnAssessments(session.copy(rulesVersion = 2)).all { it.status == "HELD" })
+        assertTrue(PracticeEvaluator.turnAssessments(session.copy(dataGap = false, samples = base.samples)).all { it.status == "HELD" })
+    }
     private fun signal(value: String, now: Long, source: String = "SDK") = Signal(value, "VALID", source, now, "CALLBACK")
     private fun snapshot(now: Long, point: GeoPoint, steering: Double, moving: Boolean = true) = mapOf(
         "speed" to signal(if (moving) "5.0" else "0.0", now), "gear" to signal(if (moving) "8" else "4", now),

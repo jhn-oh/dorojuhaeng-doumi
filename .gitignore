@@ -9,3 +9,15 @@
 !/outputs/hq-delivery/
 /outputs/hq-delivery/*
 !/outputs/hq-delivery/검수.md
+!/outputs/course-routing-20261114/
+/outputs/course-routing-20261114/*
+!/outputs/course-routing-20261114/검증.md
+!/outputs/course-routing-20261114/full.json
+!/outputs/course-routing-20261114/left.json
+!/outputs/course-routing-20261114/right.json
+!/outputs/course-routing-20261114/42dot.json
+!/outputs/course-routing-20261114/wide-roads/
+/outputs/course-routing-20261114/wide-roads/*
+!/outputs/course-routing-20261114/wide-roads/final.json
+!/outputs/course-routing-20261114/wide-roads/coverage.json
+!/outputs/course-routing-20261114/wide-roads/check_arterial.py

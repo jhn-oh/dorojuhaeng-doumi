@@ -55,6 +55,12 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         if (Looper.myLooper() == main.looper) action() else main.post { action() }
     }
     fun go(page: Page) = dispatch { doGo(page) }
+    fun previousPractices(currentId: String, offset: Int, done: (Result<List<PreviousPractice>>) -> Unit) {
+        io.execute {
+            val result = runCatching { store.previous(currentId, offset) }
+            main.post { done(result) }
+        }
+    }
     fun courseStep(step: CourseStep) = dispatch {
         val current = state.value
         if (current.page == Page.COURSE && step != CourseStep.PREVIEW && canReview(signals(), SystemClock.elapsedRealtime()))
@@ -239,6 +245,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             .filter { it.mistake }.map { it.event.id.substringAfterLast(':') }.filter { id -> route.turns.any { it.id == id } }
         val statuses = previous?.let(PracticeEvaluator::turnAssessments).orEmpty().filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
         engine = PracticeEngine(PracticeSession(courseId = route.id, courseVersion = route.version, rulesVersion = route.rulesVersion, startedAtMs = now, startedWallMs = System.currentTimeMillis(), manualDoor = state.value.manualDoor, manualBelt = state.value.manualBelt, expectedDoors = doors, dataGap = !turnReady,
+            evidenceGaps = if (turnReady) emptyList() else listOf(EvidenceGap(now, now)),
             practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses))
         engine!!.tick(data, now)
         try {

@@ -7,6 +7,8 @@ import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class PreviousPractice(val title: String, val started: Long, val notes: List<String>)
+
 /** Android's transaction-backed SQLite; all calls belong to the coordinator's I/O thread. */
 class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", null, 1) {
     private val persistedCounts = mutableMapOf<String, Int>()
@@ -41,6 +43,28 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
     fun latest(): PracticeSession? {
         val db = readableDatabase
         val data = db.rawQuery("SELECT payload FROM sessions ORDER BY updated_ms DESC LIMIT 1", null).use { if (it.moveToFirst()) JSONObject(it.getString(0)) else null } ?: return null
+        return decode(data)
+    }
+
+    /** One index page at a time. Revisions replace the same session, including corrected mistakes. */
+    fun previous(currentId: String, offset: Int): List<PreviousPractice> {
+        val rows = readableDatabase.rawQuery(
+            "SELECT payload FROM sessions WHERE id <> ? ORDER BY updated_ms DESC, id DESC LIMIT 8 OFFSET ?",
+            arrayOf(currentId, offset.toString())
+        ).use { c -> buildList { while (c.moveToNext()) add(JSONObject(c.getString(0))) } }
+        return rows.map { data ->
+            val session = decode(data)
+            val assessment = PracticeEvaluator.evaluate(session)
+            val turns = if (session.rulesVersion >= 2) PracticeEvaluator.turnAssessments(session).filter { it.mistake } else emptyList()
+            val notes = if (turns.isEmpty()) listOf(assessment.reason) else turns.map {
+                practiceTargetLabel(it.event.id.substringAfterLast(':'), session.practiceRoute) + " · " + it.reason
+            }
+            PreviousPractice(session.practiceRoute.name, session.startedWallMs, notes)
+        }
+    }
+
+    private fun decode(data: JSONObject): PracticeSession {
+        val db = readableDatabase
         check(data.getInt("schemaVersion") == 1) { "Unsupported report schema" }
         val id = data.getString("id")
         val samples = mutableListOf<RecordedSignal>()
@@ -58,6 +82,10 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
             samples = samples, passage = p?.let { Passage(it.getString("id"), it.getLong("entryMs"), if (it.isNull("exitMs")) null else it.getLong("exitMs")) },
             observation = Observation.valueOf(data.getString("observation")), interrupted = data.getBoolean("interrupted"), safetyIssue = data.getBoolean("safetyIssue"),
             dataGap = data.getBoolean("dataGap"), nextPractice = data.getBoolean("nextPractice"), revision = data.getInt("revision"),
+            evidenceGaps = data.optJSONArray("evidenceGaps")?.let { a -> (0 until a.length()).map { i ->
+                val interval = a.getJSONArray(i)
+                EvidenceGap(interval.getLong(0), interval.getLong(1))
+            } }.orEmpty(),
             turns = data.optJSONArray("turns")?.let { array -> (0 until array.length()).map { index ->
                 val t = array.getJSONObject(index)
                 TurnEvent(t.getString("id"), TurnDirection.valueOf(t.getString("direction")), t.getLong("entryMs"),
@@ -78,6 +106,7 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         .put("manualDoor", s.manualDoor).put("manualBelt", s.manualBelt).put("expectedDoors", JSONArray(s.expectedDoors)).put("sampleCount", s.samples.size)
         .put("passage", s.passage?.let { JSONObject().put("id", it.id).put("entryMs", it.entryMs).put("exitMs", it.exitMs ?: JSONObject.NULL) } ?: JSONObject.NULL)
         .put("observation", s.observation.name).put("interrupted", s.interrupted).put("safetyIssue", s.safetyIssue).put("dataGap", s.dataGap)
+        .put("evidenceGaps", JSONArray(s.evidenceGaps.map { JSONArray(listOf(it.start, it.end)) }))
         .put("nextPractice", s.nextPractice).put("revision", s.revision)
         .put("turns", JSONArray(s.turns.map { t -> JSONObject().put("id", t.id).put("direction", t.direction.name).put("entryMs", t.entryMs)
             .put("exitMs", t.exitMs ?: JSONObject.NULL).put("entryHeadingDeg", t.entryHeadingDeg ?: JSONObject.NULL)

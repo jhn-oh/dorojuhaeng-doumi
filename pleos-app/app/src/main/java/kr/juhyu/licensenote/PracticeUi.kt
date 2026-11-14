@@ -259,11 +259,12 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             if (recommendation == route) EvidenceCard("이번 연습 목표", "지난번 놓친 깜빡이를 미리 켜 보세요.")
             Spacer(Modifier.height(32.dp))
             Copy("${route.distance} m   약 ${route.minutes}분", 58, p.blue, FontWeight.SemiBold)
-            Copy(if (route.routingSeconds != null) "OSRM 자동차 경로 예상 · 실시간 교통 미반영" else "모의 주행 속도 15 km/h 기준", 26, p.muted)
+            Copy(if (route.verifiedArterial) "Valhalla 자동차 경로 예상 · 실시간 교통 미반영" else if (route.routingSeconds != null) "OSRM 자동차 경로 예상 · 실시간 교통 미반영" else "모의 주행 속도 15 km/h 기준", 26, p.muted)
+            if (route.verifiedArterial) Copy("편도 차로 수는 국가교통정보센터 표준링크 자료와 대조했어요. 기본 내비에서 다른 길로 안내하면 이 조건을 다시 확인하세요.", 26, p.second)
             Copy("${route.departure} → ${route.destination}", 30, p.second)
             Copy(if (route.rulesVersion == 1) "에뮬레이터 전용 가상 구간이에요." else "에뮬레이터용 코스 · 실제 도로 통행 조건 미확인", 26, p.muted)
             Spacer(Modifier.height(20.dp))
-            Copy("시작하면 기본 내비의 기존 경로를 경유지 ${route.waypoints.size}곳과 이 목적지로 변경해요.", 28, p.second)
+            Copy(if (route.waypoints.isEmpty()) "시작하면 기본 내비의 기존 목적지를 이 도착점으로 변경해요." else "시작하면 기본 내비의 기존 경로를 경유지 ${route.waypoints.size}곳과 이 목적지로 변경해요.", 28, p.second)
         }
         if (wide) Row(Modifier.weight(1f).fillMaxWidth().padding(top = 60.dp), horizontalArrangement = Arrangement.spacedBy(70.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), content = text)
@@ -512,6 +513,7 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
                 EvidenceCard(practiceTargetLabel(course.id, s?.practiceRoute ?: CourseCatalog.full), listOfNotNull(observation, detail, turnEvidence(result?.event).takeIf { it.isNotBlank() }).joinToString("\n"))
             }
         }
+        if (s != null) PreviousPracticeList(s.id, c)
         if (a?.mistake == true) {
             Action(if (legacy) "차로 변경 방법 보기" else "회전 연습 방법 보기", modifier = Modifier.fillMaxWidth()) { c.go(Page.LESSON) }
         }
@@ -520,6 +522,39 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
         else Link("다음 연습 준비", modifier = Modifier.fillMaxWidth()) { c.go(Page.BELT) }
     }
 }
+@Composable private fun PreviousPracticeList(currentId: String, coordinator: PracticeCoordinator) {
+    var open by remember(currentId) { mutableStateOf(false) }
+    var offset by remember(currentId) { mutableIntStateOf(0) }
+    var page by remember(currentId) { mutableStateOf<List<PreviousPractice>?>(null) }
+    var error by remember(currentId) { mutableStateOf(false) }
+    val format = remember { SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA) }
+    Link("지난 연습 기록", modifier = Modifier.fillMaxWidth()) { open = true; offset = 0 }
+    if (!open) return
+    LaunchedEffect(currentId, offset) {
+        page = null; error = false
+        val requested = offset
+        coordinator.previousPractices(currentId, offset) { result ->
+            if (open && requested == offset) { page = result.getOrNull(); error = result.isFailure }
+        }
+    }
+    Dialog(onDismissRequest = { open = false }) {
+        Surface(shape = RoundedCornerShape(28.dp), color = LocalPalette.current.paper) {
+            Column(Modifier.padding(32.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Copy("지난 연습 기록", 44, weight = FontWeight.SemiBold)
+                if (error) Copy("기록을 불러올 수 없어요.", 28)
+                else if (page == null) Copy("기록을 불러오고 있어요.", 28)
+                else if (page!!.isEmpty()) Copy("앞선 연습 기록이 없어요.", 28)
+                page.orEmpty().forEach { item -> EvidenceCard(format.format(Date(item.started)) + " · " + item.title, item.notes.joinToString("\n")) }
+                Row {
+                    if (offset > 0) Link("더 최근 기록") { offset -= 8 }
+                    if (page?.size == 8) Link("더 이전 기록") { offset += 8 }
+                }
+                Action("닫기", modifier = Modifier.fillMaxWidth()) { open = false }
+            }
+        }
+    }
+}
+
 @Composable private fun LessonScreen(ui: PracticeUi, c: PracticeCoordinator) {
     val p = LocalPalette.current
     val legacy = ui.session?.rulesVersion == 1

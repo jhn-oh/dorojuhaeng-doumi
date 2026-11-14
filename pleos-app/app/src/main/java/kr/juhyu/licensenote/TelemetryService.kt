@@ -29,7 +29,7 @@ class TelemetryService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel("practice", "운전 연습 기록", NotificationManager.IMPORTANCE_LOW))
             try {
-                startForeground(1, Notification.Builder(this, "practice").setContentTitle("면허연습노트").setContentText("선택한 연습의 차량 기록을 남기고 있어요.").setSmallIcon(android.R.drawable.ic_menu_mylocation).build())
+                startForeground(1, Notification.Builder(this, "practice").setContentTitle("도로주행 도우미").setContentText("선택한 연습의 차량 기록을 남기고 있어요.").setSmallIcon(android.R.drawable.ic_menu_mylocation).build())
                 sdk.startLocationUpdates()
                 if (intent.getBooleanExtra("prepareCourseRoute", false)) CourseCatalog.find(intent.getStringExtra("courseId"))?.let { sdk.openNavigation(true, it) }
             } catch (error: SecurityException) {

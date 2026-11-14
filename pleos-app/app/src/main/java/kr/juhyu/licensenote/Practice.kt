@@ -39,6 +39,7 @@ data class TargetOutcome(val courseTurnId: String, val label: String, val previo
 
 data class RecordedSignal(val atMs: Long, val key: String, val value: String?, val quality: String, val source: String, val origin: String)
 data class Passage(val id: String, val entryMs: Long, val exitMs: Long? = null)
+data class EvidenceGap(val start: Long, val end: Long)
 enum class Observation { UNANSWERED, LEFT, NOT_LEFT, UNSEEN, CONFIRMED, NOT_PERFORMED }
 enum class SessionPhase { RECORDING, REVIEW, COMPLETE, INTERRUPTED }
 data class PracticeSession(
@@ -59,6 +60,7 @@ data class PracticeSession(
     val interrupted: Boolean = false,
     val safetyIssue: Boolean = false,
     val dataGap: Boolean = false,
+    val evidenceGaps: List<EvidenceGap> = emptyList(),
     val nextPractice: Boolean = false,
     val revision: Int = 1,
     val turns: List<TurnEvent> = emptyList(),
@@ -129,6 +131,15 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
     private val trail = ArrayDeque<Pair<Long, GeoPoint>>()
     private val closedTurns = mutableSetOf<String>()
 
+    private fun noteGap(start: Long, end: Long) {
+        val from = start.coerceIn(session.startedAtMs, end)
+        val last = session.evidenceGaps.lastOrNull()
+        val gaps = if (last != null && from <= last.end + 1 && end >= last.start)
+            session.evidenceGaps.dropLast(1) + EvidenceGap(minOf(last.start, from), maxOf(last.end, end))
+        else session.evidenceGaps + EvidenceGap(from, end)
+        session = session.copy(dataGap = true, evidenceGaps = gaps)
+    }
+
     fun signalChanged(key: String, signal: Signal, previous: Signal?) {
         if (session.phase != SessionPhase.RECORDING || signal.receivedMs < session.startedAtMs) return
         val discrete = key in setOf("belt", "turn", "turn_subscription", "gear", "steering", "steering_subscription") || key.startsWith("door:")
@@ -137,19 +148,22 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
             session = session.copy(samples = session.samples + RecordedSignal(signal.receivedMs, key, signal.value, signal.quality, signal.source, signal.origin))
         }
         if (signal.quality != "VALID" && (key in setOf("turn", "turn_subscription", "speed", "gear") || key.startsWith("door:") || (key == "location" && session.passage != null && session.passage?.exitMs == null))) {
-            session = session.copy(dataGap = true)
+            noteGap(signal.receivedMs, signal.receivedMs)
         }
     }
 
     fun tick(signals: Map<String, Signal>, now: Long) {
         if (session.phase != SessionPhase.RECORDING || now - lastTick < 800) return
         val gap = now - lastTick > 2500 || session.samples.size >= 50_000
+        if (gap) noteGap(lastTick, now)
         lastTick = now
         val keys = listOf("belt", "turn", "turn_subscription", "steering", "steering_subscription", "speed", "gear", "location") + session.expectedDoors +
             listOf("brake_pressed", "drive_mode", "odometer_km", "vehicle_usage_minutes").filter { signals.containsKey(it) }
         val next = keys.map { key ->
             val s = signals[key]
-            RecordedSignal(now, key, s?.value, if (s.fresh(now)) "VALID" else "UNAVAILABLE", s?.source ?: "unavailable", s?.origin ?: "")
+            // Registration is a state transition, unlike the periodically read vehicle measurements.
+            val ready = key.endsWith("_subscription") && s?.quality == "VALID" && s.value == "READY"
+            RecordedSignal(now, key, s?.value, if (ready || s.fresh(now)) "VALID" else "UNAVAILABLE", s?.source ?: "unavailable", s?.origin ?: "")
         }
         session = session.copy(samples = if (session.samples.size < 50_000) session.samples + next else session.samples, dataGap = session.dataGap || gap)
         updatePosition(signals, now)
@@ -161,7 +175,7 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
         val stamp = parts[4].toLongOrNull() ?: return
         if (stamp == lastLocationStamp) return
         if (lastLocationStamp != null && stamp < lastLocationStamp!!) {
-            session = session.copy(dataGap = true)
+            noteGap(lastPointAt ?: now, now)
             return
         }
         lastLocationStamp = stamp
@@ -172,7 +186,7 @@ class PracticeEngine(var session: PracticeSession, private val courseTurns: List
         lastPoint = point
         lastPointAt = now
         if (previous != null && previousAt != null && (now - previousAt > 3500 || distanceMeters(previous, point) > 60.0 * ((now - previousAt) / 1000.0).coerceAtLeast(1.0))) {
-            session = session.copy(dataGap = true)
+            noteGap(previousAt, now)
             return
         }
         val moving = signals["speed"].fresh(now) && (signals["speed"]?.value?.toDoubleOrNull() ?: 0.0) > 0.5
@@ -306,7 +320,11 @@ object PracticeEvaluator {
         when {
             event.observation == Observation.NOT_PERFORMED -> assessment("NO_TURN", false, "회전하지 않았다고 답했어요. 이 사건은 오답에서 제외해요.")
             event.observation != Observation.CONFIRMED -> assessment("HELD", false, "동승자의 회전 확인이 없어 미평가로 남겼어요.")
-            s.interrupted || s.safetyIssue || s.dataGap || end == null || end < until -> assessment("HELD", false, "중단·수신 공백 또는 회전 뒤 기록 부족으로 평가를 보류했어요.")
+            s.interrupted || s.safetyIssue || end == null || end < until -> assessment("HELD", false, "중단·안전 문제 또는 회전 뒤 기록 부족으로 평가를 보류했어요.")
+            s.dataGap && (s.rulesVersion < 3 || s.evidenceGaps.isEmpty() || s.evidenceGaps.any { it.start <= until && it.end >= from }) ->
+                assessment("HELD", false, "이 회전 전후의 기록에 수신 공백이 있어 평가를 보류했어요.")
+            s.rulesVersion >= 3 && !covered(s.samples, "turn_subscription", from, until) { it == "READY" } ->
+                assessment("HELD", false, "회전 전후에 방향지시등 변경을 계속 받을 수 있었는지 확인하지 못했어요.")
             !covered(s.samples, "turn", from, until) { it in setOf("OFF", "LEFT", "RIGHT") } -> assessment("HELD", false, "회전 전후의 방향지시등 기록을 연속으로 확인하지 못했어요.")
             s.samples.any { it.key == "turn" && it.atMs in from..until && it.quality == "VALID" && it.value == event.direction.signal } -> assessment("OBSERVED", false, "${event.direction.label} 구간에서 ${if (event.direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"} 깜빡이를 켠 기록이 있어요. 신호 시점이나 안전한 회전까지 확인한 것은 아니에요.")
             covered(s.samples, "turn", from, until) { it == "OFF" } -> assessment("OMISSION", true, "동승자가 ${event.direction.label}을 확인했고, 구간 전후 깜빡이는 계속 꺼져 있었어요.")
