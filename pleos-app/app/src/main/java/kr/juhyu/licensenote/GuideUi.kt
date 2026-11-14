@@ -28,12 +28,18 @@ internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: 
                          returnPage: Page, close: () -> Unit, open: (GuideTopic) -> Unit) {
     var section by rememberSaveable { mutableStateOf(GuideSection.START) }
     val listScroll = rememberScrollState()
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (topic == null) GuideDashboard(signals, now, wide, section, listScroll, { section = it }, open)
-            else key(topic) { GuideLesson(topic, signals, now, wide) }
+    val returnButton: @Composable (Boolean) -> Unit = { primary ->
+        GuideButton(returnPage.guideReturnLabel(), Modifier.fillMaxWidth().padding(top = 12.dp), primary = primary, onClick = close)
+    }
+    if (topic == null) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                GuideDashboard(signals, now, wide, section, listScroll, { section = it }, open)
+            }
+            returnButton(true)
         }
-        GuideButton(returnPage.guideReturnLabel(), Modifier.fillMaxWidth().padding(top = 12.dp), primary = topic == null, onClick = close)
+    } else key(topic) {
+        GuideLesson(topic, signals, now, wide, returnButton)
     }
 }
 
@@ -119,7 +125,7 @@ private fun WarningCard(topic: GuideTopic, title: String, state: GuideWarning, o
 }
 
 @Composable
-private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Long, wide: Boolean) {
+private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Long, wide: Boolean, returnButton: @Composable (Boolean) -> Unit) {
     val p = LocalPalette.current
     var step by rememberSaveable { mutableIntStateOf(0) }
     var alternate by rememberSaveable { mutableStateOf(false) }
@@ -192,10 +198,16 @@ private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Lo
     }
     val question = topic.question
     if (questionOpen && question != null) {
-        GuideQuestionView(question, answer, { answer = it }) { questionOpen = false; answer = -1 }
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                GuideQuestionView(question, answer, { answer = it }) { questionOpen = false; answer = -1 }
+            }
+            returnButton(false)
+        }
         return
     }
     val lessonScroll = key(step) { rememberScrollState() }
+    val lessonComplete = step == steps.lastIndex && question == null
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(lessonScroll)) {
             Copy(topic.title, if (wide) 58 else 44, p.ink, FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
@@ -209,12 +221,13 @@ private fun GuideLesson(topic: GuideTopic, signals: Map<String, Signal>, now: Lo
             GuideButton("이전", enabled = step > 0, modifier = Modifier.weight(1f)) { step-- }
             GuideButton("다시 보기", modifier = Modifier.weight(1.2f)) { replay++ }
             GuideButton(if (step != steps.lastIndex) "다음 단계" else if (question != null) "상황 문제" else "처음부터",
-                primary = true, modifier = Modifier.weight(1.4f)) {
+                primary = !lessonComplete, modifier = Modifier.weight(1.4f)) {
                 if (step < steps.lastIndex) step++
                 else if (question != null) { answer = -1; questionOpen = true }
                 else step = 0
             }
         }
+        returnButton(lessonComplete)
     }
 }
 

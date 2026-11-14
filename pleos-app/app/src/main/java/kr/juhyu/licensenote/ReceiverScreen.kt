@@ -119,8 +119,13 @@ private val cancelWorker = Executors.newSingleThreadExecutor()
         val button = Modifier.widthIn(max = 784.dp).fillMaxWidth()
         when {
             mode == "choose" -> {
-                Action("휴대폰 연결하기", modifier = button) { mode = "setup" }
-                Link("QR로 받기", modifier = button) { mode = "offline" }
+                if (api == null) {
+                    Action("QR로 받기", modifier = button) { mode = "offline" }
+                    Link("휴대폰 연결하기", modifier = button) { mode = "setup" }
+                } else {
+                    Action("휴대폰 연결하기", modifier = button) { mode = "setup" }
+                    Link("QR로 받기", modifier = button) { mode = "offline" }
+                }
             }
             mode == "setup" && pair == null -> Action("연결 QR 열기", api != null && !busy, modifier = button) {
                 val client = api ?: return@Action

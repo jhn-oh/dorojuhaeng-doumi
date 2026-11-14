@@ -26,6 +26,13 @@ internal fun reportText(s: PracticeSession): String {
             PracticeEvaluator.turnAssessments(s).forEach {
                 appendLine(it.event.direction.label + " · " + it.reason)
             }
+            if (s.vehicleReview) {
+                for (item in practiceTargetOutcomes(s)) {
+                    val previous = item.previousStatus ?: continue
+                    val turn = s.practiceRoute.turns.firstOrNull { it.id == item.courseTurnId } ?: continue
+                    appendLine("${item.label} 비교 · 지난번 ${signalReading(previous, turn.direction)} → 이번 ${signalReading(item.currentStatus, turn.direction)}")
+                }
+            }
             if (assessment.practiceSuggested) append("다음 연습 · 주변을 확인하고 깜빡이를 미리 켜 보세요.")
         }
     }.trim()

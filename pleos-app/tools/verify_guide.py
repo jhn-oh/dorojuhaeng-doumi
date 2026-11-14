@@ -149,6 +149,14 @@ try:
         report_cmd = ("run-as", "kr.juhyu.licensenote", "--user", user, "cat", "files/last-report.json")
         has_report_cmd = ("run-as", "kr.juhyu.licensenote", "--user", user, "ls", "files")
         previous = shell(*report_cmd) if "last-report.json" in shell(*has_report_cmd).splitlines() else None
+        if step == "1 / 3":
+            capture("belt-lesson-entry", wait_text("계기판 읽기"))
+            click("계기판 읽기")
+            capture("belt-direct-lesson", wait_text("속도계를 찾아요"))
+            back()
+            resumed = visible(wait_text("출발 준비"))
+            assert step in resumed and "계기판 읽기" in resumed, resumed
+            checks["directLessonBackRestoresBelt"] = True
         click("설명서")
         wait_text("내 차 익히기")
         click("계기판 읽기")

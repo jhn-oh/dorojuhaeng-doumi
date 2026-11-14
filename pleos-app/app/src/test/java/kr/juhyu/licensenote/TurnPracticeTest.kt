@@ -180,6 +180,10 @@ class TurnPracticeTest {
         assertEquals("OBSERVED", comparison.currentStatus)
         assertFalse(PracticeEvaluator.evaluate(repeat).practiceSuggested)
         assertNull(CourseCatalog.recommendation(repeat))
+        val comparisonLine = "첫 번째 좌회전 비교 · 지난번 깜빡이 계속 꺼짐 → 이번 왼쪽 깜빡이 켜짐"
+        assertTrue(reportText(repeat).contains(comparisonLine))
+        assertFalse(reportText(repeat.copy(safetyIssue = true)).contains("비교 ·"))
+        assertFalse(reportText(s).contains("비교 ·"))
     }
 
     @Test fun incompleteConflictingOrUntrustedEvidenceCannotRecommendPractice() {

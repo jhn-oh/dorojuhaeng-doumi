@@ -133,7 +133,10 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                     }
                                     Preparation(wide, R.drawable.figma_belt, 1, if (worn) "안전벨트를 맸어요" else if (belt.fresh(ui.now)) "안전벨트를 매세요" else "안전벨트를 확인해 주세요", description, {
                                         if (worn) Action("다음", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(false) }
-                                        Link(if (belt.fresh(ui.now)) "직접 확인했어요" else "벨트를 맸어요", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(true) }
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Link("계기판 읽기", modifier = Modifier.weight(1f)) { c.openGuide(GuideTopic.SPEED) }
+                                            Link(if (belt.fresh(ui.now)) "직접 확인했어요" else "벨트를 맸어요", modifier = Modifier.weight(1f)) { c.confirmBelt(true) }
+                                        }
                                     })
                                 }
                                 Page.MIRROR -> Preparation(wide, R.drawable.figma_mirror, 2, "거울을 맞춰 주세요", "먼저 좌석을 몸에 맞추세요.\n룸미러와 양쪽 사이드미러가 잘 보이나요?", {
@@ -230,7 +233,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> if (ui.session?.vehicleReview == true) "주행 복습" else "오답노트"; Page.LESSON -> if (ui.session?.practiceRoute?.isLanePractice == true) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (canChangeText && ui.page.hasGuideEntry()) Link("설명서", onClick = c::openGuide)
+            if (canChangeText && ui.page.hasGuideEntry()) Link("설명서") { c.openGuide() }
             if (canChangeText) Link("글자", modifier = Modifier.semantics { contentDescription = "글자 크기: ${if (ui.textScale > 1f) "크게" else "기본"}" }) { textSizeDialog = true }
             when (ui.page) {
                 Page.WELCOME -> Link("면허와 표지", parked, onClick = onLegal)
@@ -522,16 +525,6 @@ private fun archivedAnswer(answer: Observation): String = when (answer) {
             Link("차량 기록 보기", modifier = Modifier.weight(1f)) { c.go(Page.NOTEBOOK) }
             Link("휴대폰으로 보내기", modifier = Modifier.weight(1f)) { c.go(Page.SHARE) }
         }
-    }
-}
-
-private fun signalReading(status: String?, direction: TurnDirection): String {
-    val side = if (direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"
-    return when (status) {
-        "OBSERVED" -> "$side 깜빡이 켜짐"
-        "SIGNAL_ABSENT", "OMISSION" -> "깜빡이 계속 꺼짐"
-        "HELD" -> "판단 보류"
-        else -> "구간 기록 없음"
     }
 }
 

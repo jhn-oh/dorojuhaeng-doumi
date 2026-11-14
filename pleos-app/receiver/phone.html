@@ -1,45 +1,101 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>도로주행 도우미 · 연습 결과</title><style>
-:root{color-scheme:light dark;font:18px/1.6 system-ui,sans-serif}body{margin:0}main{max-width:32rem;margin:4rem auto;padding:0 1.25rem}h1{font-size:2rem;line-height:1.25}
-input,button{font:inherit;border-radius:.75rem;padding:.65rem 1rem}input{box-sizing:border-box;width:100%;margin:.4rem 0 1rem}button{background:#185ccb;color:white;border:0;cursor:pointer}
-article{white-space:pre-wrap;padding:1.2rem;border:1px solid #8593a4;border-radius:1rem}small{color:#63809a}
+:root { color-scheme: light dark; font: 100%/1.6 system-ui, sans-serif; --ink: #15273b; --muted: #506174; --paper: #fff; --surface: #f3f6fa; --edge: #798899; --action: #1658c4; --action-text: #fff; }
+@media (prefers-color-scheme:dark) { :root { --ink: #ecf3fc; --muted: #b6c8dc; --paper: #101922; --surface: #1c2a39; --edge: #8da5bc; --action: #abcbff; --action-text: #10294c; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; }
+main { max-width: 32rem; margin: clamp(1.75rem, 8vh, 4rem) auto; padding: 0 1.25rem; }
+small, #status { color: var(--muted); }
+h1 { margin: .35rem 0 .5rem; font-size: clamp(1.7rem, 7vw, 2.1rem); line-height: 1.25; }
+input, button { width: 100%; min-height: 48px; font: inherit; border-radius: .75rem; padding: .65rem 1rem; }
+input { display: block; margin: .4rem 0 1rem; border: 1px solid var(--edge); background: var(--paper); color: var(--ink); }
+button { background: var(--action); color: var(--action-text); border: 0; font-weight: 650; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
+article { white-space: pre-wrap; padding: 1rem 1.15rem; border-radius: 1rem; background: var(--surface); }
+#ack, #save { margin-top: .75rem; }
+#save { background: var(--surface); color: var(--ink); }
 </style></head><body><main><small>도로주행 도우미</small><h1>연습 기록 받기</h1><p id="status" role="status">차량에 표시할 기기 이름을 입력해 주세요.</p>
 <form id="pair"><label>받을 기기 이름<input id="alias" value="내 휴대폰" required maxlength="32"></label><button>이 기기로 연결</button></form>
-<article id="report" hidden></article><button id="ack" hidden>이 기록을 받았어요</button></main>
+<article id="report" aria-label="이번 연습 기록" hidden></article><button id="ack" hidden>이 기록을 받았어요</button><button id="save" hidden>텍스트 파일로 저장</button></main>
 <script>
 "use strict";
 const el = id => document.getElementById(id);
 const link = location.hash.slice(1) || sessionStorage.getItem("practiceLink") || "";
 if (location.hash) { sessionStorage.setItem("practiceLink", link); history.replaceState(null,"",location.pathname); }
 const [id, token] = link.split(".");
-let revision, ended = false;
+let revision, ended = false, change = 0;
 async function api(action, body) {
   const response = await fetch("/v1/pair/" + encodeURIComponent(id) + "/" + action, {
     method: body ? "POST" : "GET", headers: {"Content-Type":"application/json", Authorization:"Bearer " + token},
     body: body ? JSON.stringify(body) : undefined, cache:"no-store"
   });
-  if (!response.ok) { if ([403,410].includes(response.status)) ended = true; throw Error(ended ? "연결이 만료됐어요. 차량에서 새 QR을 열어 주세요." : "연결을 확인하고 다시 시도해 주세요."); }
+  if (!response.ok) {
+    const expired = [403,410].includes(response.status);
+    const error = new Error(expired ? "연결이 만료됐어요. 차량에서 새 QR을 열어 주세요." : "연결을 확인하고 다시 시도해 주세요.");
+    error.expired = expired;
+    throw error;
+  }
   return response.json();
 }
 async function refresh() {
+  const before = change;
   try {
     const result = await api("read");
+    if (ended || before !== change) return;
     el("pair").hidden = result.state !== "waiting";
     if (result.state === "paired") el("status").textContent = "차량에서 기기 이름을 확인하고 전송을 눌러 주세요.";
     if (result.state === "sent" || result.state === "received") {
       el("report").textContent = result.summary; el("report").hidden = false;
-      revision = result.revision; el("ack").hidden = result.state === "received";
+      revision = result.revision; el("ack").hidden = result.state === "received"; el("save").hidden = false;
       el("status").textContent = result.state === "received" ? "수신을 확인했어요." : "연습 기록이 도착했어요. 아래에서 수신을 확인해 주세요.";
       ended = result.state === "received";
     }
     if (result.state === "cancelled") { ended = true; el("report").hidden=true; el("report").textContent=""; el("status").textContent = "차량에서 전송을 취소했어요."; }
-  } catch (error) { el("status").textContent = error.message; if (ended) { el("report").hidden=true; el("report").textContent=""; } }
-  if (ended) { sessionStorage.removeItem("practiceLink"); el("pair").hidden=true; el("ack").hidden=true; }
-  else setTimeout(refresh, 1500);
+  } catch (error) {
+    if (before === change) {
+      el("status").textContent = error.message;
+      if (error.expired) { ended=true; el("report").hidden=true; el("report").textContent=""; }
+    }
+  }
+  finally {
+    if (ended) {
+      if (el("report").hidden) sessionStorage.removeItem("practiceLink");
+      el("pair").hidden=true; el("ack").hidden=true; el("save").hidden=el("report").hidden;
+    }
+    else setTimeout(refresh, 1500);
+  }
 }
-el("pair").onsubmit = async event => { event.preventDefault(); try { await api("claim",{alias:el("alias").value.trim()}); el("pair").hidden=true; el("status").textContent="차량에서 전송을 눌러 주세요."; } catch(error) { el("status").textContent=error.message; } };
-el("ack").onclick = async () => { try { await api("ack",{revision}); el("ack").hidden=true; el("status").textContent="수신을 확인했어요."; } catch(error) { el("status").textContent=error.message; } };
+el("pair").onsubmit = async event => {
+  event.preventDefault();
+  try {
+    await api("claim", {alias:el("alias").value.trim()});
+    change++;
+    el("pair").hidden = true;
+    if (!ended && el("report").hidden) el("status").textContent = "차량에서 전송을 눌러 주세요.";
+  } catch (error) { el("status").textContent = error.message; }
+};
+el("ack").onclick = async () => {
+  try {
+    await api("ack", {revision});
+    change++;
+    ended = true;
+    el("ack").hidden = true;
+    el("status").textContent = "수신을 확인했어요.";
+  } catch (error) { el("status").textContent = error.message; }
+};
+el("save").onclick = () => {
+  const text = el("report").textContent;
+  if (!text || el("report").hidden) return;
+  const url = URL.createObjectURL(new Blob([text], {type:"text/plain;charset=utf-8"}));
+  const download = document.createElement("a");
+  download.href = url;
+  download.download = "도로주행-연습기록.txt";
+  document.body.append(download);
+  download.click();
+  download.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
 if (/^[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{32}$/.test(link)) refresh();
 else { el("pair").hidden=true; el("status").textContent="차량에서 연결 QR을 다시 찍어 주세요."; }
 </script></body></html>

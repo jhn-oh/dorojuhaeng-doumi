@@ -47,6 +47,20 @@ data class Signal(
     val sampleNs: Long? = null,
 )
 
+internal const val LOCATION_MAX_AGE_MS = 3000L
+
+internal fun fusedLocationSignal(location: LocationData?, wallNowMs: Long, elapsedNowMs: Long): Signal {
+    val measuredMs = location?.timestampMillis
+    val ageMs = measuredMs?.takeIf { it > 0 && it <= wallNowMs }?.let { wallNowMs - it }
+    val measuredElapsedMs = ageMs?.takeIf { it <= LOCATION_MAX_AGE_MS && it <= elapsedNowMs }?.let { elapsedNowMs - it }
+    return Signal(
+        value = location?.let { "${it.latitude},${it.longitude},${it.heading},${it.confidence},${it.timestampMillis}" },
+        quality = if (measuredElapsedMs != null) "VALID" else "UNAVAILABLE",
+        source = "FusedLocation/1.1.3", receivedMs = elapsedNowMs, origin = "CALLBACK",
+        sampleNs = measuredElapsedMs?.times(1_000_000L),
+    )
+}
+
 /** Owns public SDK subscriptions independently of the Compose Activity. */
 class SdkTelemetry(private val context: Context, private val emit: (String, Signal) -> Unit, private val guideVisible: () -> Boolean) {
     private val inputThread = HandlerThread("PleosInput").apply { start() }
@@ -184,15 +198,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
     private val locationListener = object : FusedLocationListener {
         override fun onChanged(location: LocationData?) {
-            if (!collectingLocation) return
-            send("location", location?.let { "${it.latitude},${it.longitude},${it.heading},${it.confidence},${it.timestampMillis}" }, "FusedLocation/1.1.3", "CALLBACK")
-        }
-        override fun onError(exception: Exception) = fail("location", exception)
-    }
-    private val lastLocationListener = object : FusedLocationListener {
-        override fun onChanged(location: LocationData?) {
-            if (!collectingLocation) return
-            send("location", location?.let { "${it.latitude},${it.longitude},${it.heading},${it.confidence},${it.timestampMillis}" }, "FusedLocation/1.1.3", "LAST_KNOWN")
+            if (collectingLocation && !closed) {
+                emit("location", fusedLocationSignal(location, System.currentTimeMillis(), SystemClock.elapsedRealtime()))
+            }
         }
         override fun onError(exception: Exception) = fail("location", exception)
     }
@@ -535,7 +543,6 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     fun startLocationUpdates() {
         collectingLocation = true
         runCatching {
-            fused.getLastKnownLocation(lastLocationListener)
             fused.registerFusedLocationCallback(locationListener)
         }.onFailure { fail("location", Exception(it)) }
     }

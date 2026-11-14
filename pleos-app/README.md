@@ -1,6 +1,6 @@
 # 도로주행 도우미
 
-**0.5.0 · Pleos Connect용 Android 앱.** 주차 중 안전벨트·거울·도어를 확인하고 코스를 고릅니다. 점검 중 **설명서 → 계기판 읽기**에서 속도와 기어 표시를 익힌 뒤 **출발 점검 계속하기**로 돌아갈 수 있습니다. 주차한 뒤 기록을 마치면 차량 신호로 정리한 결과가 바로 열립니다. 패키지는 `kr.juhyu.licensenote`, versionCode는 13입니다.
+**0.5.1 · Pleos Connect용 Android 앱.** 주차 중 안전벨트·거울·도어를 확인하고 코스를 고릅니다. 안전벨트 화면의 **계기판 읽기**에서 속도와 기어를 익힌 뒤 **출발 점검 계속하기**로 같은 단계에 돌아갈 수 있습니다. 주차한 뒤 기록을 마치면 차량 신호로 정리한 결과가 바로 열립니다. 같은 구간을 다시 연습하면 차량 카드와 휴대폰 요약에서 지난번과 이번 기록을 비교할 수 있습니다. 패키지는 `kr.juhyu.licensenote`, versionCode는 14입니다.
 
 코스를 고른 뒤 문이 다시 열리면 **이 코스로 시작**에서 3/3 점검으로 돌아갑니다. 문을 닫고 확인하면 선택한 코스가 다시 열립니다. 자동 확인했던 버클의 신호가 바뀌거나 오래된 경우에도 출발 전에 다시 확인합니다.
 
@@ -85,7 +85,7 @@ Vehicle SDK 2.3.2에서 벨트·문·방향지시등·조향을, AAOS에서 속�
 .\tools\install.ps1 -Serial emulator-5580 -WithUiDriver
 ```
 
-앱은 `kr.juhyu.licensenote`, versionCode 4, minSdk 28, compileSdk·targetSdk 35다. 설치 파일은 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 개발 기기에서 SDK 진단과 접근성 기반 화면 검사를 할 때 시험용 `ui-driver`를 함께 설치한다. [Gradle 설정](app/build.gradle.kts)
+앱은 `kr.juhyu.licensenote`, minSdk 28, compileSdk·targetSdk 35다. 설치 파일은 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 개발 기기에서 SDK 진단과 접근성 기반 화면 검사를 할 때 시험용 `ui-driver`를 함께 설치한다. [Gradle 설정](app/build.gradle.kts)
 
 ## 에뮬레이터에서 재현
 

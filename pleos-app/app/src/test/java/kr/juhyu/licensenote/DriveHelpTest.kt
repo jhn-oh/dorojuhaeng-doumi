@@ -1,5 +1,6 @@
 package kr.juhyu.licensenote
 
+import ai.pleos.playground.location.fused.model.LocationData
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -61,6 +62,33 @@ class DriveHelpTest {
         assertNull(nextPracticeCue(route, route.points.first(), 30.0).turnKey)
         val reverse = (bearingDegrees(route.points[0], route.points[1]) + 180) % 360
         assertNull(nextPracticeCue(route, route.points.first(), 4.0, reverse).turnKey)
+    }
+    @Test fun aRepeatedFusedFixExpiresFromMeasurementAndLiveGuidanceRecoversWithANewFix() {
+        val route = CourseCatalog.full
+        val start = route.points.first()
+        val wall = 1_794_654_000_000L
+        val elapsed = 10_000L
+        val measured = LocationData(start.lat, start.lon, 0.0, 0f, 5f, wall - 2_000)
+        val initial = fusedLocationSignal(measured, wall, elapsed)
+        val session = PracticeSession(courseId = route.id, rulesVersion = 5, expectedDoors = emptyList(),
+            startedAtMs = elapsed, startedWallMs = wall)
+        val repeated = fusedLocationSignal(measured, wall + 1000, elapsed + 1000)
+        assertEquals(initial.sampleNs, repeated.sampleNs)
+        assertEquals("LEFT", driveCue(session, mapOf("location" to repeated), elapsed + 1000).turnKey)
+        assertNull(locationPoint(repeated, elapsed + 1001))
+        val stale = fusedLocationSignal(measured, wall + 1001, elapsed + 1001)
+        assertEquals("UNAVAILABLE", stale.quality)
+        assertEquals("위치 신호 대기 중", driveCue(session, mapOf("location" to stale), elapsed + 1001).title)
+        val engine = PracticeEngine(session)
+        engine.tick(mapOf("location" to stale), elapsed + 1001)
+        assertEquals("UNAVAILABLE", engine.session.samples.single { it.key == "location" }.quality)
+        val next = fusedLocationSignal(measured.copy(timestampMillis = wall + 2000), wall + 2000, elapsed + 2000)
+        engine.tick(mapOf("location" to next), elapsed + 2000)
+        assertEquals("VALID", engine.session.samples.last { it.key == "location" }.quality)
+        assertEquals("LEFT", driveCue(session, mapOf("location" to next), elapsed + 2000).turnKey)
+        for (stamp in listOf(0L, wall + 60_000)) {
+            assertNull(locationPoint(fusedLocationSignal(measured.copy(timestampMillis = stamp), wall, elapsed), elapsed))
+        }
     }
     @Test fun nativeNavigationRequiresFreshMatchingCourseLocationTurnAndDistance() {
         val route = CourseCatalog.full

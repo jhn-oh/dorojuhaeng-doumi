@@ -88,6 +88,16 @@ fun practiceTargetIds(s: PracticeSession): List<String> = when {
     s.nextPractice -> PracticeEvaluator.turnAssessments(s).filter { it.practiceSuggested }.map { it.event.id.substringAfterLast(':') }
     else -> s.practiceTargets
 }
+internal fun signalReading(status: String?, direction: TurnDirection): String {
+    val side = if (direction == TurnDirection.LEFT) "왼쪽" else "오른쪽"
+    return when (status) {
+        "OBSERVED" -> "$side 깜빡이 켜짐"
+        "SIGNAL_ABSENT", "OMISSION" -> "깜빡이 계속 꺼짐"
+        "HELD" -> "판단 보류"
+        else -> "구간 기록 없음"
+    }
+}
+
 fun practiceTargetOutcomes(s: PracticeSession): List<TargetOutcome> {
     val results = PracticeEvaluator.turnAssessments(s)
     return s.practiceTargets.map { id ->
@@ -126,8 +136,11 @@ fun distanceMeters(a: GeoPoint, b: GeoPoint): Double {
     return hypot((a.lat - b.lat) * 111_195.0, (a.lon - b.lon) * 111_195.0 * cos(lat))
 }
 fun locationPoint(signal: Signal?, now: Long): GeoPoint? {
-    if (!signal.fresh(now, 3000)) return null
+    if (!signal.fresh(now, LOCATION_MAX_AGE_MS)) return null
     if (signal?.origin == "LAST_KNOWN") return null
+    // A delayed or repeated callback does not give the underlying fix a new lifetime.
+    val measuredMs = signal?.sampleNs?.div(1_000_000L)
+    if (measuredMs != null && now - measuredMs !in 0L..LOCATION_MAX_AGE_MS) return null
     return locationPoint(signal?.value?.split(',') ?: return null)
 }
 

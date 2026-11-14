@@ -53,6 +53,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     val ui = state.asStateFlow()
     private var engine: PracticeEngine? = null
     private var pageBeforeDiagnostics = Page.COURSE
+    private var guideOpenedDirectly = false
     private var savingError = false
     private val introContentVersion = 1
     // Existing accepted notices carried this same wording before the version field existed.
@@ -110,10 +111,11 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         if (current.page == Page.COURSE && CourseCatalog.find(route.id) != null && canReview(signals(), SystemClock.elapsedRealtime()))
             state.value = current.copy(selectedRouteId = route.id, previewOrigin = current.courseStep, courseStep = CourseStep.PREVIEW, chosenNative = null, searchStarted = 0, searchResult = null, error = null)
     }
-    fun openGuide() = dispatch {
+    fun openGuide(topic: GuideTopic? = null) = dispatch {
         val current = state.value
         if (!current.page.hasGuideEntry() || current.loading || current.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
-        state.value = current.copy(page = Page.GUIDE, guideTopic = null, guideReturnPage = current.page)
+        guideOpenedDirectly = topic != null
+        state.value = current.copy(page = Page.GUIDE, guideTopic = topic, guideReturnPage = current.page)
     }
     fun closeGuide() = dispatch {
         val current = state.value
@@ -248,7 +250,10 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         e.signalChanged(key, signal, previous)
     }
     private fun closeRestrictedGuideTopic(now: Long) {
-        if (state.value.guideTopic != null && !canReview(signals(), now)) state.value = state.value.copy(guideTopic = null)
+        val current = state.value
+        if (current.guideTopic != null && !canReview(signals(), now)) {
+            state.value = current.copy(page = if (guideOpenedDirectly) current.guideReturnPage else Page.GUIDE, guideTopic = null)
+        }
     }
     private fun doDiagnostics() { pageBeforeDiagnostics = state.value.page; go(Page.DIAGNOSTICS) }
     private fun doProbeNavigation() {
@@ -263,7 +268,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         if (p == Page.GUIDE) {
             // Returning to an in-progress preparation step must preserve its confirmations.
-            if (state.value.guideTopic != null) state.value = state.value.copy(guideTopic = null)
+            if (state.value.guideTopic != null && !guideOpenedDirectly) state.value = state.value.copy(guideTopic = null)
             else closeGuide()
             return
         }
