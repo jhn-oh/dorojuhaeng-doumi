@@ -1,0 +1,53 @@
+package kr.juhyu.licensenote
+
+import android.app.Service
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Intent
+import android.os.IBinder
+import android.os.Binder
+import android.util.Log
+
+class TelemetryService : Service() {
+    private lateinit var sdk: SdkTelemetry
+    private val connection = Binder()
+    override fun onCreate() {
+        super.onCreate()
+        val app = application as LicenseApp
+        sdk = SdkTelemetry(this, app::accept) {
+            app.coordinator.ui.value.page == Page.GUIDE && canReview(app.signals.value, android.os.SystemClock.elapsedRealtime())
+        }
+        sdk.start()
+        if (BuildConfig.DEBUG) Log.i("LicenseService", "created; SDK connected to Activity/service lifetime")
+    }
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (BuildConfig.DEBUG && intent?.action == "PROBE_NAVIGATION") sdk.probeNavigation()
+        if (intent?.action == "OPEN_NAVIGATION") sdk.openNavigation(intent.getBooleanExtra("withCourseRoute", false))
+        if (BuildConfig.DEBUG && intent?.action == "OPEN_NAVIGATION_SETTINGS") sdk.openNavigationSettings()
+        if (intent?.action == "RECORD") {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(NotificationChannel("practice", "운전 연습 기록", NotificationManager.IMPORTANCE_LOW))
+            try {
+                startForeground(1, Notification.Builder(this, "practice").setContentTitle("면허연습노트").setContentText("선택한 연습의 차량 기록을 남기고 있어요.").setSmallIcon(android.R.drawable.ic_menu_mylocation).build())
+                sdk.startLocationUpdates()
+                if (intent.getBooleanExtra("prepareCourseRoute", false)) sdk.openNavigation(true)
+            } catch (error: SecurityException) {
+                (application as LicenseApp).coordinator.recordingFailed()
+                stopSelf()
+            }
+        }
+        if (intent?.action == "STOP_RECORD") { sdk.stopLocationUpdates(); stopForeground(STOP_FOREGROUND_REMOVE) }
+        return START_NOT_STICKY
+    }
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // A Pleos task can be reparented while its Activity is still alive. Its binding keeps SDK input alive.
+        if ((application as LicenseApp).coordinator.ui.value.session?.phase != SessionPhase.RECORDING) stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+    override fun onBind(intent: Intent?): IBinder = connection
+    override fun onDestroy() {
+        if (BuildConfig.DEBUG) Log.i("LicenseService", "destroyed; releasing SDK subscriptions")
+        sdk.close(); super.onDestroy()
+    }
+}

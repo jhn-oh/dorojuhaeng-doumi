@@ -1,0 +1,11 @@
+# Only the app, its approved design specifications, and selected delivery evidence belong here.
+/*
+!/.gitignore
+!/.github/
+!/pleos-app/
+!/앱기능구조.md
+!/outputs/
+/outputs/*
+!/outputs/hq-delivery/
+/outputs/hq-delivery/*
+!/outputs/hq-delivery/검수.md
