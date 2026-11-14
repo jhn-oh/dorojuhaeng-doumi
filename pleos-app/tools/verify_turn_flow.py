@@ -42,6 +42,7 @@ parser.add_argument("--expect-target", help="Assert that this course turn is an 
 parser.add_argument("--expect-previous-session", help="Assert the actual previous session linked by the new recording")
 parser.add_argument("--restore-lat", type=float)
 parser.add_argument("--restore-lon", type=float)
+parser.add_argument("--capture-navigation-evidence", action="store_true", help="Bracket driving screenshots with the public navigation and fused-location state")
 parser.add_argument("--continuous-nmea", action="store_true", help="Supply timestamped GGA/RMC once per second, including parked periods on -no-passive-gps AVDs")
 parser.add_argument("--record-map-fallback", action="store_true", help="Also exercise the driving flow when the app reports raster fallback; save the reason separately from fully loaded maps")
 args = parser.parse_args()
@@ -294,6 +295,15 @@ def verify_ui_matrix(stage):
     focus("matrix_return:" + stage)
 
 
+def navigation_snapshot():
+    signals = read_json("sdk-state.json")
+    return {"deviceUptimeMs": round(float(adb("shell", "cat", "/proc/uptime").split()[0]) * 1000),
+            "hostUtc": datetime.now(timezone.utc).isoformat(),
+            "signals": {key: signals.get(key) for key in ("location", "speed", "gear", "navigation_location",
+                "navigation_status", "navigation_route", "navigation_request", "navigation_route_details",
+                "navigation_destination", "navigation_waypoints", "navigation_tbt", "course_tbt")}}
+
+
 def capture(name, required=()):
     global last_bounds
     if "운전 연습" in required and last_bounds and last_bounds[2]-last_bounds[0] == 841:
@@ -323,12 +333,18 @@ def capture(name, required=()):
         assert abs(width-args.expected_width) <= 1, (name, width, args.expected_width)
     # Accessibility can precede the first rendered Compose frame after a transition.
     time.sleep(.8)
+    navigation_before = navigation_snapshot() if args.capture_navigation_evidence and name.startswith("02") else None
     root = probe()
     assert set(required).issubset(visible(root)), (name, visible(root))
     (out / (name + ".xml")).write_text(ET.tostring(root, encoding="unicode"), encoding="utf-8")
     png = subprocess.check_output([args.adb, "-s", args.serial, "exec-out", "screencap", "-p"], timeout=30)
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     (out / (name + ".png")).write_bytes(png)
+    if navigation_before:
+        text = sorted(visible(root))
+        brackets = {"before": navigation_before, "after": navigation_snapshot(), "labels": text,
+                    "positionMismatchMessageVisible": "정차 후 경로를 확인하세요" in text}
+        (out / (name + ".navigation.json")).write_text(json.dumps(brackets, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / (name + ".metadata.json")).write_text(json.dumps({
         "capturedAtHostUtc": datetime.now(timezone.utc).isoformat(), "widthLabel": args.width_label,
         "appBounds": bounds, "appWidthPixels": width, "appHeightPixels": height,

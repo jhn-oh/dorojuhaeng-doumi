@@ -21,3 +21,8 @@
 !/outputs/course-routing-20261114/wide-roads/final.json
 !/outputs/course-routing-20261114/wide-roads/coverage.json
 !/outputs/course-routing-20261114/wide-roads/check_arterial.py
+!/outputs/course-evidence-20261114/
+/outputs/course-evidence-20261114/*
+!/outputs/course-evidence-20261114/검수.md
+!/outputs/course-evidence-20261114/app-reference.json
+!/outputs/course-evidence-20261114/route-traffic-comparison.json

@@ -144,7 +144,12 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
     private fun beltFailed(error: Exception) = onInput {
         beltSubscribed = false
-        fail("belt", error)
+        val quality = when {
+            error is SecurityException || error.message == "ERROR_SECURITY_PERMISSION" -> "DENIED"
+            error is UnsupportedOperationException || error.message in setOf("ERROR_NOT_SUPPORTED_PROPERTY", "ERROR_NOT_SUPPORTED_AREA") -> "UNSUPPORTED"
+            else -> "ERROR"
+        }
+        emit("belt", Signal(quality = quality, source = "Vehicle/Seat", receivedMs = SystemClock.elapsedRealtime(), error = error.message))
     }
     private fun turnFailed(error: Exception) = onInput {
         turnSubscribed = false
@@ -556,7 +561,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
                         beltAttempted = true
                         beltSubscribed = true
                         runCatching { vehicle.getSeat().registerSeatBeltBuckledState(area, beltListener) }.onFailure { beltFailed(Exception(it)) }
-                    } ?: send("belt", null, "Vehicle/Seat unsupported driver area")
+                    } ?: beltFailed(UnsupportedOperationException("Driver buckle area unavailable"))
                 } }, onFailed = { error -> onInput { beltPending = false; fail("belt_capability", error); beltFailed(error) } })
             }.onFailure { beltPending = false; beltFailed(Exception(it)) }
         }

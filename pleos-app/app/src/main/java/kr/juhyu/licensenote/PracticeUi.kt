@@ -121,7 +121,15 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 Page.BELT -> {
                                     val belt = signals["belt"]
                                     val worn = belt.fresh(ui.now) && belt?.value == "true"
-                                    Preparation(wide, R.drawable.figma_belt, 1, if (worn) "안전벨트를 맸어요" else if (belt.fresh(ui.now)) "안전벨트를 매세요" else "안전벨트를 확인해 주세요", if (worn) "운전석 버클이 채워졌어요." else if (belt.fresh(ui.now)) "차에 타면 운전석 안전벨트부터 매세요.\n버클이 채워지면 알려드릴게요." else "지금은 차에서 버클 신호를 받지 못했어요.\n매고 나서 직접 확인해 주세요.", {
+                                    val description = when {
+                                        worn -> "운전석 버클이 채워졌어요."
+                                        belt.fresh(ui.now) -> "차에 타면 운전석 안전벨트부터 매세요.\n버클이 채워지면 알려드릴게요."
+                                        belt?.quality == "UNSUPPORTED" -> "이 차는 운전석 버클 확인을 지원하지 않아요.\n벨트를 매고 직접 확인해 주세요."
+                                        belt?.quality == "DENIED" -> "버클을 읽을 권한이 없어요.\n벨트를 매고 직접 확인해 주세요."
+                                        belt?.quality == "ERROR" -> "버클 신호를 다시 연결하고 있어요.\n벨트를 매고 직접 확인해도 돼요."
+                                        else -> "운전석 버클 신호를 기다리고 있어요.\n벨트를 매고 직접 확인해도 돼요."
+                                    }
+                                    Preparation(wide, R.drawable.figma_belt, 1, if (worn) "안전벨트를 맸어요" else if (belt.fresh(ui.now)) "안전벨트를 매세요" else "안전벨트를 확인해 주세요", description, {
                                         if (worn) Action("다음", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(false) }
                                         Link(if (belt.fresh(ui.now)) "직접 확인했어요" else "벨트를 맸어요", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(true) }
                                     })
@@ -214,7 +222,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     Row(Modifier.fillMaxWidth().heightIn(min = 83.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             if (ui.page !in setOf(Page.WELCOME, Page.DRIVING, Page.RESULT)) IconButton(onClick = c::back, enabled = parked, modifier = Modifier.size(76.dp).semantics { contentDescription = "뒤로" }) { FigmaIcon(R.drawable.figma_back, 64, LocalPalette.current.second) }
-            Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> if (ui.courseStep == CourseStep.PREVIEW) "경로 미리보기" else "연습 코스"; Page.REVIEW -> "주차 후 확인"; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> "오답노트"; Page.LESSON -> if (ui.session?.rulesVersion == 1) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
+            Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.REVIEW -> "주차 후 확인"; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> "오답노트"; Page.LESSON -> if (ui.session?.rulesVersion == 1) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (canChangeText && ui.page.hasGuideEntry()) Link("설명서", onClick = c::openGuide)

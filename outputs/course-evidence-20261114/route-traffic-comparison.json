@@ -1,0 +1,424 @@
+{
+  "sourceMapping": "서울시 교통소통 표준링크 매핑정보 20250306.xlsx / OA-15061 / 첨부 4",
+  "sourceRoute": "8.709 km 강남역 동쪽→올림픽공원 서쪽 · 이미 대조된 진행 방향의 42 표준링크",
+  "standardLinks": 42,
+  "serviceLinks": 17,
+  "rowsWithSpeed": 17,
+  "standardLinksReferencedBySpeedRows": 41,
+  "unmappedStandardLinks": [
+    "1230436901"
+  ],
+  "timeFieldInTrafficInfo": false,
+  "localRetrievalOnly": true,
+  "probes": [
+    {
+      "serviceLink": "1220023400",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220023402"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:37.464906+00:00",
+      "onCourse": [
+        "1220023402"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 21.9,
+      "travelTimeSeconds": 53.0
+    },
+    {
+      "serviceLink": "1220024100",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220024101"
+        ],
+        [
+          2,
+          "1220024102"
+        ],
+        [
+          3,
+          "1220024103"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:37.817868+00:00",
+      "onCourse": [
+        "1220024101",
+        "1220024102",
+        "1220024103"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 18.2,
+      "travelTimeSeconds": 110.0
+    },
+    {
+      "serviceLink": "1220025300",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220025301"
+        ],
+        [
+          2,
+          "1220025302"
+        ],
+        [
+          3,
+          "1220025303"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:38.146405+00:00",
+      "onCourse": [
+        "1220025301",
+        "1220025302",
+        "1220025303"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 11.2,
+      "travelTimeSeconds": 179.0
+    },
+    {
+      "serviceLink": "1220026100",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220026104"
+        ],
+        [
+          2,
+          "1220026105"
+        ],
+        [
+          3,
+          "1220026102"
+        ],
+        [
+          4,
+          "1220026103"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:38.427251+00:00",
+      "onCourse": [
+        "1220026102",
+        "1220026103",
+        "1220026104",
+        "1220026105"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 25.2,
+      "travelTimeSeconds": 84.0
+    },
+    {
+      "serviceLink": "1220026900",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220026901"
+        ],
+        [
+          2,
+          "1220026902"
+        ],
+        [
+          3,
+          "1220026903"
+        ],
+        [
+          4,
+          "1220026904"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:38.706731+00:00",
+      "onCourse": [
+        "1220026901",
+        "1220026902",
+        "1220026903",
+        "1220026904"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 19.7,
+      "travelTimeSeconds": 132.0
+    },
+    {
+      "serviceLink": "1220028100",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220028104"
+        ],
+        [
+          2,
+          "1220028105"
+        ],
+        [
+          3,
+          "1220028102"
+        ],
+        [
+          4,
+          "1220028103"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:38.969077+00:00",
+      "onCourse": [
+        "1220028102",
+        "1220028103",
+        "1220028104",
+        "1220028105"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 8.8,
+      "travelTimeSeconds": 255.0
+    },
+    {
+      "serviceLink": "1220028900",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220028902"
+        ],
+        [
+          2,
+          "1220028903"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:39.247775+00:00",
+      "onCourse": [
+        "1220028902",
+        "1220028903"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 17.4,
+      "travelTimeSeconds": 64.0
+    },
+    {
+      "serviceLink": "1220029500",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1220078400"
+        ],
+        [
+          2,
+          "1220029500"
+        ],
+        [
+          3,
+          "1230076400"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:39.578540+00:00",
+      "onCourse": [
+        "1220029500",
+        "1220078400",
+        "1230076400"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 29.2,
+      "travelTimeSeconds": 47.0
+    },
+    {
+      "serviceLink": "1230024600",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230436101"
+        ],
+        [
+          2,
+          "1230436501"
+        ],
+        [
+          3,
+          "1230024602"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:39.837388+00:00",
+      "onCourse": [
+        "1230024602",
+        "1230436101",
+        "1230436501"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 14.0,
+      "travelTimeSeconds": 179.0
+    },
+    {
+      "serviceLink": "1230025000",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230025002"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:40.112012+00:00",
+      "onCourse": [
+        "1230025002"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 22.1,
+      "travelTimeSeconds": 101.0
+    },
+    {
+      "serviceLink": "1230025100",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230025101"
+        ],
+        [
+          2,
+          "1230025102"
+        ],
+        [
+          3,
+          "1230025103"
+        ],
+        [
+          4,
+          "1230025104"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:40.442055+00:00",
+      "onCourse": [
+        "1230025101",
+        "1230025102",
+        "1230025103",
+        "1230025104"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 12.4,
+      "travelTimeSeconds": 186.0
+    },
+    {
+      "serviceLink": "1230025800",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230025801"
+        ],
+        [
+          2,
+          "1230025802"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:40.725377+00:00",
+      "onCourse": [
+        "1230025801",
+        "1230025802"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 11.9,
+      "travelTimeSeconds": 209.0
+    },
+    {
+      "serviceLink": "1230027400",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230027402"
+        ],
+        [
+          2,
+          "1230027403"
+        ],
+        [
+          3,
+          "1230027404"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:40.993247+00:00",
+      "onCourse": [
+        "1230027402",
+        "1230027403",
+        "1230027404"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 19.0,
+      "travelTimeSeconds": 119.0
+    },
+    {
+      "serviceLink": "1230029200",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230028401"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:41.260686+00:00",
+      "onCourse": [
+        "1230028401"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 27.9,
+      "travelTimeSeconds": 75.0
+    },
+    {
+      "serviceLink": "1230030800",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230030802"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:41.543953+00:00",
+      "onCourse": [
+        "1230030802"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 20.5,
+      "travelTimeSeconds": 56.0
+    },
+    {
+      "serviceLink": "1230032200",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230032200"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:41.820768+00:00",
+      "onCourse": [
+        "1230032200"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 36.7,
+      "travelTimeSeconds": 26.0
+    },
+    {
+      "serviceLink": "1230033300",
+      "constituentStandardLinks": [
+        [
+          1,
+          "1230033301"
+        ]
+      ],
+      "checkedAt": "2026-11-14T06:07:42.093141+00:00",
+      "onCourse": [
+        "1230033301"
+      ],
+      "allConstituentsOnCourse": true,
+      "code": "INFO-000",
+      "speedKmh": 13.3,
+      "travelTimeSeconds": 109.0
+    }
+  ]
+}

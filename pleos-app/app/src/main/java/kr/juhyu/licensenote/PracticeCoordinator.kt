@@ -16,7 +16,7 @@ import java.io.File
 import java.util.concurrent.Executors
 
 enum class Page { WELCOME, BELT, MIRROR, DOORS, COURSE, DRIVING, REVIEW, RESULT, NOTEBOOK, LESSON, DIAGNOSTICS, GUIDE, SHARE }
-enum class CourseStep { LIST, REQUEST, DESTINATION, PREVIEW }
+enum class CourseStep { LIST, REQUEST, DESTINATION, PREVIEW, UTURN_LESSON, TRAFFIC_LESSON }
 data class PracticeUi(
     val page: Page = Page.WELCOME,
     val session: PracticeSession? = null,
@@ -54,6 +54,9 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     private var pageBeforeDiagnostics = Page.COURSE
     private var pageBeforeGuide = Page.WELCOME
     private var savingError = false
+    private val introContentVersion = 1
+    // Existing accepted notices carried this same wording before the version field existed.
+    private fun acceptedIntroVersion() = preferences.getInt("introVersion", if (preferences.getBoolean("introSeen", false)) 1 else 0)
     internal fun dispatch(action: () -> Unit) {
         if (Looper.myLooper() == main.looper) action() else main.post { action() }
     }
@@ -178,7 +181,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
                 if (final != null) exportReport(final)
                 main.post {
                     engine = final?.let(::PracticeEngine)
-                    val page = if (final != null) Page.RESULT else if (preferences.getBoolean("introSeen", false)) Page.BELT else Page.WELCOME
+                    val page = if (acceptedIntroVersion() != introContentVersion) Page.WELCOME else if (final != null) Page.RESULT else Page.BELT
                     state.value = state.value.copy(page = page, session = final, assessment = final?.let(PracticeEvaluator::evaluate), loading = false)
                 }
             }, onFailure = { error -> main.post { state.value = state.value.copy(loading = false, error = "저장한 기록을 열지 못했습니다. 앱을 다시 열어 주세요.") } })
@@ -215,8 +218,13 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         state.value = state.value.copy(page = page, error = null, reviewEventId = if (page == Page.REVIEW) engine?.session?.turns?.firstOrNull { it.exitMs != null }?.id else null)
     }
-    private fun doAcceptIntro() { preferences.edit().putBoolean("introSeen", true).putString("driverType", "learner").apply(); go(Page.BELT) }
-    private fun doAcceptLicensed() { preferences.edit().putBoolean("introSeen", true).putString("driverType", "licensed").apply(); go(Page.BELT) }
+    private fun doAcceptIntro() = recordIntro("learner")
+    private fun doAcceptLicensed() = recordIntro("licensed")
+    private fun recordIntro(driverType: String) {
+        if (!canReview(signals(), SystemClock.elapsedRealtime())) return
+        preferences.edit().putBoolean("introSeen", true).putInt("introVersion", introContentVersion).putString("driverType", driverType).apply()
+        go(Page.BELT)
+    }
     private fun doConfirmBelt(manual: Boolean) { state.value = state.value.copy(manualBelt = manual); go(Page.MIRROR) }
     private fun doConfirmDoors(manual: Boolean) { state.value = state.value.copy(manualDoor = manual, preflightConfirmed = true, courseStep = CourseStep.LIST, courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null); go(Page.COURSE) }
     private fun doOnSignal(key: String, signal: Signal, previous: Signal?) {

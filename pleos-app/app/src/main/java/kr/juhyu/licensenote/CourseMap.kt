@@ -155,7 +155,7 @@ private object CourseTiles {
 
 /** Real raster map, fixed course extent. The position marker only uses the supplied SDK point. */
 @Composable
-fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boolean = true, route: PracticeRoute = CourseCatalog.full) {
+fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boolean = true, route: PracticeRoute = CourseCatalog.full, mapLabel: String = "연습 코스", focusPoint: GeoPoint? = null) {
     val textScale = LocalAppTextScale.current
     val context = LocalContext.current.applicationContext
     val uriHandler = LocalUriHandler.current
@@ -220,7 +220,7 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Canvas(Modifier.size(width = 24.dp, height = 16.dp)) { drawLine(blue, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 4.dp.toPx(), StrokeCap.Round) }
-                Text("연습 코스", color = ink, fontFamily = MapAsta, fontWeight = FontWeight.Medium, fontSize = (22 * textScale).sp)
+                Text(mapLabel, color = ink, fontFamily = MapAsta, fontWeight = FontWeight.Medium, fontSize = (22 * textScale).sp)
             }
             if (actualPoint != null) Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                 if (markerVisible) {
@@ -233,7 +233,7 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
         Box(Modifier.fillMaxWidth().height(1.dp).background(line))
         Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
             Canvas(Modifier.fillMaxSize().onSizeChanged { mapSize = it }.background(light).semantics {
-                contentDescription = "$status. 실제 OpenStreetMap 지도. 선은 연습 코스. " + (actualPoint?.let { "수신 위치 ${String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon)}" } ?: "현재 위치 없음")
+                contentDescription = "$status. 실제 OpenStreetMap 지도. 선은 $mapLabel. " + (actualPoint?.let { "수신 위치 ${String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon)}" } ?: "현재 위치 없음")
             }) {
                 val current = view ?: return@Canvas
                 for ((tile, bitmap) in load.images) {
@@ -252,6 +252,11 @@ fun CourseMap(point: GeoPoint?, modifier: Modifier = Modifier, linksEnabled: Boo
                     }
                     drawPath(path, paper, style = Stroke(9.dp.toPx(), cap = StrokeCap.Round))
                     drawPath(path, blue, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
+                    focusPoint?.let { focus ->
+                        val position = current.screen(focus)
+                        drawCircle(paper, 12.dp.toPx(), position)
+                        drawCircle(blue, 8.dp.toPx(), position)
+                    }
                     if (markerVisible) {
                         drawCircle(blue.copy(alpha = .2f), 22.dp.toPx(), marker!!)
                         drawCircle(paper, 14.dp.toPx(), marker)

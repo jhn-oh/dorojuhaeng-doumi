@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -21,7 +20,15 @@ import androidx.compose.ui.unit.dp
 internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator) {
     val p = LocalPalette.current
     val recommendation = remember(ui.session) { CourseCatalog.recommendation(ui.session) }
-    var unavailable by rememberSaveable { mutableStateOf<String?>(null) }
+    val lesson = when (ui.courseStep) {
+        CourseStep.UTURN_LESSON -> ParkedCourseLesson.UTURN
+        CourseStep.TRAFFIC_LESSON -> ParkedCourseLesson.TRAFFIC
+        else -> null
+    }
+    if (lesson != null) {
+        CourseLessonScreen(lesson, wide, c::back)
+        return
+    }
     val scroll = key(ui.courseStep) { rememberScrollState() }
     if (ui.courseStep == CourseStep.LIST) {
         Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(if (wide) 24.dp else 16.dp)) {
@@ -36,19 +43,15 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
             choices.chunked(if (wide) 2 else 1).forEach { pair ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     pair.forEach { (title, route) ->
-                        CourseCard(title, route?.stats ?: "검수된 경로 없음", Modifier.weight(1f),
+                        CourseCard(title, route?.stats ?: if (title == "유턴 연습") "일원터널 사거리 · 정차 중 학습" else "세종대로 · 혼잡 기록 학습", Modifier.weight(1f),
                             route != null && ui.selectedRouteId == route.id) {
-                            if (route == null) unavailable = title else c.previewCourse(route)
+                            if (route != null) c.previewCourse(route)
+                            else c.courseStep(if (title == "유턴 연습") CourseStep.UTURN_LESSON else CourseStep.TRAFFIC_LESSON)
                         }
                     }
                 }
             }
             Link("원하는 코스가 있나요?", modifier = Modifier.fillMaxWidth()) { c.courseStep(CourseStep.REQUEST) }
-        }
-        unavailable?.let { title ->
-            AlertDialog(onDismissRequest = { unavailable = null }, title = { Copy(title, 39, weight = FontWeight.SemiBold) },
-                text = { Copy(if (title == "유턴 연습") "유턴이 허용되는 지점을 확인한 코스가 아직 없어요." else "교통 혼잡 수준을 확인한 코스가 아직 없어요.", 28, p.second) },
-                confirmButton = { Link("다른 코스 고르기") { unavailable = null } })
         }
         return
     }

@@ -1,0 +1,94 @@
+{
+  "uturn": {
+    "positionApproxLonLat": [
+      127.075513,
+      37.485988
+    ],
+    "sourceNotice": "https://www.koroad.or.kr/main/board/9/87734/board_view.do",
+    "sourcePublishedKst": "2023-03-08 15:49",
+    "originalMapHtmlIdentifier": "FID00115200",
+    "officialVideo": "https://www.youtube.com/watch?v=VKMmgEs_1u0",
+    "referenceOnly": true
+  },
+  "registeredArterial": {
+    "seenAtKst": [
+      "2026-11-14 15:07:37",
+      "2026-11-14 15:07:42"
+    ],
+    "knownServiceLinks": 17,
+    "coveredStandardLinks": 41,
+    "courseStandardLinks": 42,
+    "speedRangeKmh": [
+      8.8,
+      36.7
+    ],
+    "sampleKey": true,
+    "publishedObservationTimestamp": null,
+    "congestionLabel": null
+  },
+  "cityExample": {
+    "areaTrafficTimeKst": "2026-11-14 14:55",
+    "serviceLink": {
+      "LINK_ID": "1010018100",
+      "ROAD_NM": "세종대로",
+      "START_ND_CD": "1010024205",
+      "START_ND_NM": "시청앞교차로",
+      "START_ND_XY": "126.9771111379704962_37.5649683842586413",
+      "END_ND_CD": "1010036201",
+      "END_ND_NM": "청계광장",
+      "END_ND_XY": "126.9769724776174371_37.5689758850454254",
+      "DIST": "445.0",
+      "SPD": 10.0,
+      "IDX": "정체",
+      "XYLIST": "126.9769724776174371_37.5689758850454254|126.9770357842986499_37.5675064469025131|126.9770571241010231_37.5671045176161513|126.9770622406749681_37.5669973200828053|126.9771202099424414_37.5656394465692429|126.9771322330851717_37.5654054151655075|126.9771346338183520_37.5652683750225975|126.9771276194723697_37.5651279335943542|126.9771111379704962_37.5649683842586413"
+    },
+    "linkHasIndividualTimestamp": false,
+    "courseDirectionLonLat": [
+      [
+        126.9771111379705,
+        37.56496838425864
+      ],
+      [
+        126.97712761947237,
+        37.565127933594354
+      ],
+      [
+        126.97713463381835,
+        37.5652683750226
+      ],
+      [
+        126.97713223308517,
+        37.56540541516551
+      ],
+      [
+        126.97712020994244,
+        37.56563944656924
+      ],
+      [
+        126.97706224067497,
+        37.566997320082805
+      ],
+      [
+        126.97705712410102,
+        37.56710451761615
+      ],
+      [
+        126.97703578429865,
+        37.56750644690251
+      ],
+      [
+        126.97697247761744,
+        37.568975885045425
+      ]
+    ],
+    "source": "서울특별시 실시간 도시데이터",
+    "sourcePage": "https://www.data.go.kr/data/15146211/openapi.do",
+    "areaTraffic": {
+      "ROAD_MSG": "해당 장소로 이동·진입시 시간이 오래 걸릴 수 있어요.",
+      "ROAD_TRAFFIC_IDX": "정체",
+      "ROAD_TRAFFIC_SPD": 12,
+      "ROAD_TRAFFIC_TIME": "2026-11-14 14:55"
+    },
+    "areaName": "광화문·덕수궁"
+  }
+}
