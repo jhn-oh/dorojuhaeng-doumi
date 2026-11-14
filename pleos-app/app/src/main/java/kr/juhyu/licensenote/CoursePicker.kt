@@ -1,7 +1,7 @@
 package kr.juhyu.licensenote
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,6 +12,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -94,7 +96,10 @@ private fun CourseCard(title: String, detail: String, modifier: Modifier, chosen
     Surface(modifier = modifier.heightIn(min = 122.dp),
         color = if (chosen) p.tint else p.light, shape = RoundedCornerShape(22.dp),
         border = if (chosen) BorderStroke(2.dp, p.blue) else null) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 122.dp).selectable(selected = chosen, role = Role.Button, onClick = click).padding(24.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxWidth().heightIn(min = 122.dp)
+            .clickable(role = Role.Button, onClick = click)
+            .semantics { if (chosen) stateDescription = "선택한 코스" }
+            .padding(24.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f)) {
                 Copy(title, 35, if (chosen) p.blue else p.ink, FontWeight.SemiBold)
