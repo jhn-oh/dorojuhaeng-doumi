@@ -20,18 +20,21 @@ parser.add_argument("--serial", default="emulator-5580")
 parser.add_argument("--output", required=True)
 parser.add_argument("--stage", required=True, choices=("belt", "mirror", "doors", "course", "driving", "review", "result", "notebook"))
 parser.add_argument("--expected-text", action="append", default=[])
+parser.add_argument("--vehicle-review", action="store_true", help="Use the automatic vehicle review header and controls for new sessions")
 parser.add_argument("--restore-width", type=int, choices=(841, 1682))
 parser.add_argument("--font-mode", choices=("system", "app"), default="system")
 args = parser.parse_args()
 out = Path(args.output)
 out.mkdir(parents=True, exist_ok=True)
 stage_text = {"belt": "1 / 3", "mirror": "2 / 3", "doors": "3 / 3", "course": "경로 미리보기", "driving": "운전 연습", "review": "주차 후 확인", "result": "연습 결과", "notebook": "오답노트"}
+if args.vehicle_review:
+    stage_text["notebook"] = "주행 복습"
 required = [stage_text[args.stage], *args.expected_text]
 body_markers = {
     "belt": ("직접 확인했어요", "벨트를 맸어요", "다음"), "mirror": ("잘 보여요",),
     "doors": ("코스 보기", "모두 닫혔어요"),
     "course": ("이 코스로 시작", "기록 시작"), "driving": (), "review": ("보지 못했어요",),
-    "result": ("오답노트 보기", "기록 보기"),
+    "result": ("차량 기록 보기",) if args.vehicle_review else ("오답노트 보기", "기록 보기"),
     "notebook": ("좌회전 다시 연습", "우회전 다시 연습", "두 회전 다시 연습", "다음 연습 준비", "새 연습 고르기"),
 }[args.stage]
 last_bounds = [853, 90, 2535, 1300]

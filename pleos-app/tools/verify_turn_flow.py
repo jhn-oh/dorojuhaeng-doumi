@@ -40,6 +40,7 @@ parser.add_argument("--console-to-sdk-sign", type=int, choices=(-1, 1), default=
 parser.add_argument("--left-signal", choices=("Off", "BlinkLeft"), default="Off", help="Use BlinkLeft for a second, correctly signalled practice")
 parser.add_argument("--expect-target", help="Assert that this course turn is an inherited practice target")
 parser.add_argument("--expect-previous-session", help="Assert the actual previous session linked by the new recording")
+parser.add_argument("--require-vehicle-review", action="store_true", help="Reject an old recording schema rather than following its observer flow")
 parser.add_argument("--restore-lat", type=float)
 parser.add_argument("--restore-lon", type=float)
 parser.add_argument("--capture-navigation-evidence", action="store_true", help="Bracket driving screenshots with the public navigation and fused-location state")
@@ -281,7 +282,7 @@ def wait_for_map(name, timeout=40):
         time.sleep(.5)
 
 
-def verify_ui_matrix(stage):
+def verify_ui_matrix(stage, vehicle_review=False):
     if not args.ui_matrix or stage not in args.ui_matrix_stages:
         return
     destination = out / ("matrix-" + stage)
@@ -290,6 +291,8 @@ def verify_ui_matrix(stage):
                "--stage", stage, "--output", str(destination),
                "--restore-width", str(args.expected_width or 1682),
                "--font-mode", args.ui_matrix_font_mode]
+    if vehicle_review:
+        command.append("--vehicle-review")
     print("Starting UI matrix:", stage, flush=True)
     subprocess.run(command, check=True, timeout=600)
     result_path = destination / "matrix-checks.json"
@@ -663,6 +666,11 @@ def gps(point, speed=0, heading=0):
 def turn_results(report):
     return {result["direction"]: result for result in report.get("turnAssessments", [])}
 
+def assert_vehicle_surface(root):
+    labels = visible(root)
+    prompts = ("주차 후 확인", "동승자", "답변 수정", "보지 못했어요", "좌회전했어요", "우회전했어요")
+    assert not any(prompt in text for text in labels for prompt in prompts), labels
+
 
 baseline = request("/vehicle/state")
 assert baseline["gear"]["actual"]["value"] == "Park" and baseline["controls"]["speed_kph"] == 0, "Start parked at zero speed"
@@ -691,8 +699,9 @@ try:
     previous = read_json("last-report.json", optional=True)
     if args.expect_previous_session:
         assert previous and previous["id"] == args.expect_previous_session, previous
-    if args.expect_target and previous and previous.get("assessment", {}).get("mistake") and not previous.get("nextPractice"):
-        click("오답노트 보기", optional=True)
+    if args.expect_target and previous and (previous.get("assessment", {}).get("mistake") or
+            any(item.get("practiceSuggested") for item in previous.get("turnAssessments", []))) and not previous.get("nextPractice"):
+        click("차량 기록 보기" if previous["rulesVersion"] >= 5 else "오답노트 보기", optional=True)
         click("좌회전 다시 연습")
         wait_report(lambda r: r["id"] == previous["id"] and r["nextPractice"], "UI recommendation before the target practice")
     elif args.expect_target and previous and previous.get("nextPractice"):
@@ -713,9 +722,12 @@ try:
     started = wait_report(lambda r: r.get("id") != old_id and r.get("phase") == "RECORDING", "new recording session")
     sid = started["id"]
     assert started["courseId"] == "yangjae-turn-course-01" and started["rulesVersion"] >= 2, started
+    if args.require_vehicle_review:
+        assert started.get("reviewSource") == "VEHICLE_SIGNALS" and started["rulesVersion"] >= 5, started
     if args.expect_target:
         assert args.expect_target in started.get("practiceTargets", []), started
-        assert started.get("previousTargetStatuses", {}).get(args.expect_target) == "OMISSION", started
+        expected_previous = "SIGNAL_ABSENT" if previous and previous["rulesVersion"] >= 5 else "OMISSION"
+        assert started.get("previousTargetStatuses", {}).get(args.expect_target) == expected_previous, started
         checks["inherited_practice_target"] = args.expect_target
     if args.expect_previous_session:
         assert started.get("previousSessionId") == args.expect_previous_session, started
@@ -798,24 +810,48 @@ try:
     recorded = wait_report(lambda r: len([t for t in r.get("turns", []) if t.get("exitMs")]) == 2, "two SDK-derived turns")
     assert [t["direction"] for t in recorded["turns"]] == ["LEFT", "RIGHT"], recorded
     checks["two_sdk_turn_candidates"] = recorded["turns"]
+    vehicle_review = started["rulesVersion"] >= 5
+    if vehicle_review:
+        capture("03-parked-before-finish", ("운전 연습", "기록 종료"))
+        time.sleep(2)
+        checks["finishActionUtc"] = datetime.now(timezone.utc).isoformat()
     click("기록 종료")
-    capture("03-review-left", ("주차 후 확인", "좌회전했어요"))
-    verify_ui_matrix("review")
-    click("좌회전했어요")
-    capture("03a-review-right", ("주차 후 확인", "우회전했어요"))
-    click("우회전했어요")
+    if not vehicle_review:
+        capture("03-review-left", ("주차 후 확인", "좌회전했어요"))
+        verify_ui_matrix("review")
+        click("좌회전했어요")
+        capture("03a-review-right", ("주차 후 확인", "우회전했어요"))
+        click("우회전했어요")
     confirmed = wait_report(lambda r: r["id"] == sid and r["phase"] == "COMPLETE", "confirmed two turns")
     results = turn_results(confirmed)
     positive = args.left_signal == "BlinkLeft"
-    assert results["LEFT"]["status"] == ("OBSERVED" if positive else "OMISSION") and results["LEFT"]["mistake"] == (not positive), confirmed
+    missing_status = "SIGNAL_ABSENT" if vehicle_review else "OMISSION"
+    assert results["LEFT"]["status"] == ("OBSERVED" if positive else missing_status), confirmed
+    if vehicle_review:
+        assert confirmed["reviewSource"] == "VEHICLE_SIGNALS" and confirmed["observation"] == "UNANSWERED", confirmed
+        assert all(not item["mistake"] for item in results.values()), confirmed
+        assert not confirmed["assessment"]["mistake"] and confirmed["assessment"]["practiceSuggested"] == (not positive), confirmed
+        assert not results["RIGHT"]["practiceSuggested"], confirmed
+        assert results["LEFT"]["practiceSuggested"] == (not positive), confirmed
+        assert all(t["observation"] == "UNANSWERED" for t in confirmed["turns"]), confirmed
+        checks["automatic_review_without_observer_input"] = True
+    else:
+        assert results["LEFT"]["mistake"] == (not positive), confirmed
     assert results["RIGHT"]["status"] == "OBSERVED" and not results["RIGHT"]["mistake"], confirmed
     assert confirmed["assessment"]["score"] is None and not confirmed["dataGap"], confirmed
-    checks["both_turn_signals_observed" if positive else "left_omission_right_signal_observed"] = list(results.values())
+    outcome_key = "both_turn_signals_observed" if positive else (
+        "left_signal_absent_right_signal_observed" if vehicle_review else "left_omission_right_signal_observed"
+    )
+    checks[outcome_key] = list(results.values())
     (out/"confirmed-report.json").write_text(json.dumps(confirmed, ensure_ascii=False, indent=2), encoding="utf-8")
-    record_button = "기록 보기" if positive else "오답노트 보기"
+    record_button = "차량 기록 보기" if vehicle_review else "기록 보기" if positive else "오답노트 보기"
+    notebook_header = "주행 복습" if vehicle_review else "오답노트"
     capture("04-result", ("연습 결과", record_button))
-    verify_ui_matrix("result")
-    if click("휴대폰으로 보내기", optional=True):
+    if vehicle_review:
+        assert_vehicle_surface(probe())
+        time.sleep(5)  # Preserve an uninterrupted end→result shot before any optional action.
+    verify_ui_matrix("result", vehicle_review)
+    if click("휴대폰으로 보내기", optional=not vehicle_review):
         capture("04a-phone-transfer", ("QR로 받기",))
         click("QR로 받기")
         capture("04a-result-qr", ("휴대폰 카메라로 찍어 주세요", "결과로 돌아가기"))
@@ -824,62 +860,74 @@ try:
         capture("04b-returned-result", ("연습 결과", record_button))
         checks["phone_transfer_opened_and_returned"] = True
     click(record_button)
-    capture("05-notebook", ("오답노트", "첫 번째 좌회전"))
-    verify_ui_matrix("notebook")
+    capture("05-notebook", (notebook_header, "첫 번째 좌회전"))
+    if vehicle_review:
+        assert_vehicle_surface(probe())
+    verify_ui_matrix("notebook", vehicle_review)
     for _ in range(3):
         if "두 번째 우회전" in visible(probe()):
             break
         scroll_body()
-    capture("05a-notebook-right", ("오답노트", "두 번째 우회전"))
+    capture("05a-notebook-right", (notebook_header, "두 번째 우회전"))
     if positive:
         assert not confirmed["assessment"]["mistake"], confirmed
         if args.expect_target:
             outcomes = {item["courseTurnId"]: item for item in confirmed.get("targetOutcomes", [])}
             outcome = outcomes.get(args.expect_target)
-            assert outcome and outcome["previousStatus"] == "OMISSION" and outcome["currentStatus"] == "OBSERVED", confirmed
-            checks["target_improved_from_omission_to_observed"] = outcome
+            assert outcome and outcome["previousStatus"] == expected_previous and outcome["currentStatus"] == "OBSERVED", confirmed
+            checks["target_signal_observed_on_repeat" if vehicle_review else "target_improved_from_omission_to_observed"] = outcome
         checks["positive_practice_complete"] = True
-        capture("10-positive-records", ("오답노트",))
+        capture("10-positive-records", (notebook_header,))
     else:
         click("좌회전 다시 연습")
         recommended = wait_report(lambda r: r["id"] == sid and r["nextPractice"] and r["revision"] > confirmed["revision"], "next practice recommendation")
         capture("06a-recommended-preparation", ("출발 준비", "1 / 3"))
         adb("shell", "input", "keyevent", "4")
-        capture("06b-recommended-back-result", ("연습 결과", "오답노트 보기"))
+        capture("06b-recommended-back-result", ("연습 결과", record_button))
         preserved = wait_report(lambda r: r["id"] == sid and r["nextPractice"] and r["revision"] == recommended["revision"], "recommendation preserved after preparation Back")
         checks["preparation_back_preserves_same_result_and_recommendation"] = preserved["id"]
-        click("다음 연습 준비")
+        click("좌회전 다시 연습" if vehicle_review else "다음 연습 준비")
         capture("06c-preparation-required-again", ("출발 준비", "1 / 3"))
         start_label = finish_preparation()
         assert checks["preparation_passes"][-1], "Recommendation bypassed per-practice preparation"
         capture("06-next-course", (start_label,))
         checks["next_practice_saved"] = True
+        expected_revision = read_json("last-report.json")["revision"]
+        assert expected_revision >= recommended["revision"], recommended
         adb("shell", "am", "force-stop", "--user", user, "kr.juhyu.licensenote")
         adb("shell", "am", "start", "--user", user, "-n", "kr.juhyu.licensenote/.MainActivity")
         focus("process_restart_return")
-        capture("07-restored-result", ("연습 결과", "오답노트 보기"))
-        restored = wait_report(lambda r: r["id"] == sid and r["nextPractice"] and r["revision"] == recommended["revision"], "restored same session and recommendation")
+        capture("07-restored-result", ("연습 결과", record_button))
+        restored = wait_report(lambda r: r["id"] == sid and r["nextPractice"] and r["revision"] == expected_revision, "restored same session and recommendation")
         checks["restart_restored_session_and_recommendation"] = True
-        click("좌회전 답변 수정")
-        capture("07a-correction-review", ("좌회전하지 않았어요",))
-        click("좌회전하지 않았어요")
-        corrected = wait_report(lambda r: r["id"] == sid and r["revision"] > restored["revision"], "corrected first event")
-        assert turn_results(corrected)["LEFT"]["status"] == "NO_TURN" and not corrected["assessment"]["mistake"] and not corrected["nextPractice"], corrected
-        checks["correction_removes_only_left_error_and_recommendation"] = list(turn_results(corrected).values())
-        capture("08-no-turn", ("연습 결과", "기록 보기"))
-        click("좌회전 답변 수정")
-        click("보지 못했어요")
-        unseen = wait_report(lambda r: r["id"] == sid and r["revision"] > corrected["revision"], "unseen first event")
-        assert turn_results(unseen)["LEFT"]["status"] == "HELD" and not unseen["assessment"]["mistake"], unseen
-        checks["unseen_is_unassessed"] = list(turn_results(unseen).values())
-        capture("09-unseen", ("연습 결과", "기록 보기"))
-        click("좌회전 답변 수정")
-        click("좌회전했어요")
-        final = wait_report(lambda r: r["id"] == sid and r["revision"] > unseen["revision"], "reconfirmed first event")
-        assert turn_results(final)["LEFT"]["mistake"] and turn_results(final)["RIGHT"]["status"] == "OBSERVED", final
-        checks["reconfirmed_error_with_right_record_preserved"] = True
-        click("오답노트 보기")
-        capture("10-final-notebook", ("오답노트", "회전 전 깜빡이", "첫 번째 좌회전"))
+        if vehicle_review:
+            assert restored["phase"] == "COMPLETE" and restored["sampleCount"] == confirmed["sampleCount"], restored
+            assert all(t["observation"] == "UNANSWERED" for t in restored["turns"]), restored
+            assert restored["turnAssessments"] == confirmed["turnAssessments"], restored
+            assert_vehicle_surface(probe())
+            click(record_button)
+            capture("10-final-records", (notebook_header, "좌회전 다시 연습"))
+        else:
+            click("좌회전 답변 수정")
+            capture("07a-correction-review", ("좌회전하지 않았어요",))
+            click("좌회전하지 않았어요")
+            corrected = wait_report(lambda r: r["id"] == sid and r["revision"] > restored["revision"], "corrected first event")
+            assert turn_results(corrected)["LEFT"]["status"] == "NO_TURN" and not corrected["assessment"]["mistake"] and not corrected["nextPractice"], corrected
+            checks["correction_removes_only_left_error_and_recommendation"] = list(turn_results(corrected).values())
+            capture("08-no-turn", ("연습 결과", "기록 보기"))
+            click("좌회전 답변 수정")
+            click("보지 못했어요")
+            unseen = wait_report(lambda r: r["id"] == sid and r["revision"] > corrected["revision"], "unseen first event")
+            assert turn_results(unseen)["LEFT"]["status"] == "HELD" and not unseen["assessment"]["mistake"], unseen
+            checks["unseen_is_unassessed"] = list(turn_results(unseen).values())
+            capture("09-unseen", ("연습 결과", "기록 보기"))
+            click("좌회전 답변 수정")
+            click("좌회전했어요")
+            final = wait_report(lambda r: r["id"] == sid and r["revision"] > unseen["revision"], "reconfirmed first event")
+            assert turn_results(final)["LEFT"]["mistake"] and turn_results(final)["RIGHT"]["status"] == "OBSERVED", final
+            checks["reconfirmed_error_with_right_record_preserved"] = True
+            click("오답노트 보기")
+            capture("10-final-notebook", ("오답노트", "회전 전 깜빡이", "첫 번째 좌회전"))
 except BaseException as error:
     checks["failure"] = type(error).__name__ + ": " + str(error)
     raise

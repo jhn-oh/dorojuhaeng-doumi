@@ -11,6 +11,7 @@ import base64
 import shlex
 from pathlib import Path
 from datetime import datetime, timezone
+from replay_nmea import nmea_pair
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--adb", default=r"C:\AndroidSDK\platform-tools\adb.exe")
@@ -18,6 +19,7 @@ parser.add_argument("--serial", default="emulator-5580")
 parser.add_argument("--output", required=True)
 parser.add_argument("--restore-lat")
 parser.add_argument("--restore-lon")
+parser.add_argument("--nmea", action="store_true", help="Use timestamped emulator fixes on -no-passive-gps AVDs")
 parser.add_argument("--width-label", help="Label saved with each capture, for example wide or narrow")
 parser.add_argument("--expected-width", type=int, help="Assert the actual app window width in screenshot pixels")
 args = parser.parse_args()
@@ -28,6 +30,13 @@ last_app_bounds = None
 
 def adb(*parts):
     return subprocess.check_output([args.adb, "-s", args.serial, *parts], timeout=20).decode("utf-8", errors="replace")
+
+def fix(lat, lon, speed=0):
+    if args.nmea:
+        for raw in nmea_pair(datetime.now(timezone.utc), (float(lat), float(lon)), speed, 0, 12, 8):
+            assert "OK" in adb("emu", "geo", "nmea", raw).splitlines()
+    else:
+        adb("emu", "geo", "fix", str(lon), str(lat))
 
 assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", "Emulator-only test"
 user = adb("shell", "am", "get-current-user").strip()
@@ -188,7 +197,7 @@ try:
     request("/vehicle/gear", gear="Park")
     request("/vehicle/body", door_fl=0, door_fr=0, door_rl=0, door_rr=0)
     request("/vehicle/turn-signal", mode="Off")
-    adb("emu", "geo", "fix", "127.033", "37.482")
+    fix(37.482, 127.033)
     adb("shell", "am", "start", "-n", "kr.juhyu.licensenote/.MainActivity")
     start_label = prepare_lane()
     capture("01-course", ("경로 미리보기", start_label))
@@ -197,6 +206,10 @@ try:
     click(start_label)
     started = wait_report(lambda r: r.get("id") != previous_id and r.get("phase") == "RECORDING", "a new recording session")
     sid = started['id']
+    if args.nmea:
+        for _ in range(4):
+            fix(37.482, 127.033)
+            time.sleep(1)
     wait_signal("location", lambda v: v.get("origin") == "CALLBACK" and v.get("quality") == "VALID" and abs(float(v['value'].split(',')[0]) - 37.482) < .0001)
     request("/vehicle/gear", gear="Drive")
     request("/vehicle/controls", speed=18, accelerator=0, brake=0)
@@ -214,7 +227,7 @@ try:
     assert not {"연습을 마칠게요", "기록 종료"}.intersection(visible), "Moving UI exposed end/review control"
     checks["moving_review_locked"] = True
     for i in range(1, 17):
-        adb("emu", "geo", "fix", "127.033", f"{37.482 + i * .0001:.6f}")
+        fix(37.482 + i * .0001, 127.033, 18)
         time.sleep(1.15)
     time.sleep(3)
     request("/vehicle/controls", speed=0, accelerator=0, brake=0)
@@ -227,63 +240,75 @@ try:
     assert recorded.get("passage", {}).get("exitMs"), "No ordered SDK location passage"
     checks["ordered_location_passage"] = recorded['passage']
     click("기록 종료" if start_label == "이 코스로 시작" else "연습을 마칠게요")
-    review = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "REVIEW", "saved review session")
-    capture("03-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
-    click("왼쪽으로 바꿨어요")
-    report = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "COMPLETE" and r.get("observation") == "LEFT" and r.get("revision", 0) > review['revision'], "confirmed left-change observation")
-    (out / "confirmed-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    assert report['assessment']['mistake'], report
-    assert report['assessment']['score'] in (None, 93), report
-    checks["confirmed_error"] = report['assessment']
-    capture("04-result", ("연습 결과", "오답노트 보기"))
-    if click("휴대폰으로 보내기", optional=True):
-        capture("04a-phone-transfer", ("QR로 받기",))
-        click("QR로 받기")
-        capture("04a-result-qr", ("휴대폰 카메라로 찍어 주세요", "결과로 돌아가기"))
-        assert any(n.get("description") == "휴대폰 카메라로 읽는 QR 코드" for n in nodes().iter("node"))
-        click("결과로 돌아가기")
-        capture("04b-returned-result", ("연습 결과", "오답노트 보기"))
-        checks["phone_transfer_opened_and_returned"] = True
-    click("오답노트 보기")
-    capture("05-notebook", ("오답노트", "차로 변경 전 깜빡이"))
-    click("차로 변경 다시 연습" if start_label == "이 코스로 시작" else "다음 연습에 반영하기")
-    recommended = wait_report(lambda r: r.get("id") == sid and r.get("nextPractice") and r.get("revision", 0) > report['revision'], "saved next practice")
-    if start_label == "이 코스로 시작":
-        capture("06-recommended-preparation", ("출발 준비", "1 / 3"))
-        prepare_lane()
-        capture("06-next-course", ("경로 미리보기", start_label))
+    if started["rulesVersion"] >= 5:
+        report = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "COMPLETE", "automatic lane report")
+        (out / "confirmed-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf8")
+        assessment = report["assessment"]
+        assert report["observation"] == "UNANSWERED" and report["reviewSource"] == "VEHICLE_SIGNALS", report
+        assert assessment["status"] == "LANE_SIGNALS" and assessment["score"] is None and not assessment["mistake"], report
+        assert not assessment["practiceSuggested"] and not report["turns"], report
+        capture("04-result", ("연습 결과", "차량 기록 보기", "다음 연습 준비"))
+        click("차량 기록 보기")
+        capture("05-records", ("주행 복습", "다음 연습 준비"))
+        checks["automatic_signal_record_only"] = assessment
     else:
-        capture("06-next-course", ("차로 변경 복습", start_label))
-    checks["next_practice_saved"] = True
-    sid = report['id']
-    adb("shell", "am", "force-stop", "kr.juhyu.licensenote")
-    adb("shell", "am", "start", "-n", "kr.juhyu.licensenote/.MainActivity")
-    focus_visible_app_window()
-    capture("07-restored-result", ("연습 결과", "오답노트 보기"))
-    restored = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "COMPLETE" and r.get("nextPractice") and r.get("revision") == recommended['revision'], "restored result after app restart")
-    assert restored['id'] == sid and restored['nextPractice']
-    checks["restart_restored_session_and_recommendation"] = True
-    click("확인 내용 수정")
-    capture("07a-correction-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
-    click("왼쪽으로 바꾸지 않았어요")
-    corrected = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "NOT_LEFT" and r.get("revision", 0) > restored['revision'], "corrected lane observation")
-    assert corrected['id'] == sid and corrected['assessment']['status'] == "NO_DEDUCTION" and not corrected['assessment']['mistake']
-    assert not corrected['nextPractice'], "Corrected error still drives next-practice recommendation"
-    checks["observer_correction_removes_error"] = corrected['assessment']
-    capture("08-no-deduction", ("연습 결과", "이 구간은\n감점하지 않았어요"))
-    click("확인 내용 수정")
-    capture("08a-unseen-review", ("주차 후 확인", "보지 못했어요"))
-    click("보지 못했어요")
-    unseen = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "UNSEEN" and r.get("revision", 0) > corrected['revision'], "unseen observation")
-    assert unseen['assessment']['status'] == "HELD" and not unseen['assessment']['mistake']
-    checks["unseen_is_unassessed"] = unseen['assessment']
-    capture("09-unseen-held", ("이번 점수는 보류했어요", "기록 보기"))
-    click("확인 내용 수정")
-    capture("09a-final-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
-    click("왼쪽으로 바꿨어요")
-    confirmed_again = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "LEFT" and r.get("revision", 0) > unseen['revision'], "restored confirmed error")
-    assert confirmed_again['assessment']['mistake'], confirmed_again
-    checks["restored_confirmed_error"] = confirmed_again['assessment']
+        review = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "REVIEW", "saved review session")
+        capture("03-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
+        click("왼쪽으로 바꿨어요")
+        report = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "COMPLETE" and r.get("observation") == "LEFT" and r.get("revision", 0) > review['revision'], "confirmed left-change observation")
+        (out / "confirmed-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        assert report['assessment']['mistake'], report
+        assert report['assessment']['score'] in (None, 93), report
+        checks["confirmed_error"] = report['assessment']
+        capture("04-result", ("연습 결과", "오답노트 보기"))
+        if click("휴대폰으로 보내기", optional=True):
+            capture("04a-phone-transfer", ("QR로 받기",))
+            click("QR로 받기")
+            capture("04a-result-qr", ("휴대폰 카메라로 찍어 주세요", "결과로 돌아가기"))
+            assert any(n.get("description") == "휴대폰 카메라로 읽는 QR 코드" for n in nodes().iter("node"))
+            click("결과로 돌아가기")
+            capture("04b-returned-result", ("연습 결과", "오답노트 보기"))
+            checks["phone_transfer_opened_and_returned"] = True
+        click("오답노트 보기")
+        capture("05-notebook", ("오답노트", "차로 변경 전 깜빡이"))
+        click("차로 변경 다시 연습" if start_label == "이 코스로 시작" else "다음 연습에 반영하기")
+        recommended = wait_report(lambda r: r.get("id") == sid and r.get("nextPractice") and r.get("revision", 0) > report['revision'], "saved next practice")
+        if start_label == "이 코스로 시작":
+            capture("06-recommended-preparation", ("출발 준비", "1 / 3"))
+            prepare_lane()
+            capture("06-next-course", ("경로 미리보기", start_label))
+        else:
+            capture("06-next-course", ("차로 변경 복습", start_label))
+        checks["next_practice_saved"] = True
+        sid = report['id']
+        adb("shell", "am", "force-stop", "kr.juhyu.licensenote")
+        adb("shell", "am", "start", "-n", "kr.juhyu.licensenote/.MainActivity")
+        focus_visible_app_window()
+        capture("07-restored-result", ("연습 결과", "오답노트 보기"))
+        restored = wait_report(lambda r: r.get("id") == sid and r.get("phase") == "COMPLETE" and r.get("nextPractice") and r.get("revision") == recommended['revision'], "restored result after app restart")
+        assert restored['id'] == sid and restored['nextPractice']
+        checks["restart_restored_session_and_recommendation"] = True
+        click("확인 내용 수정")
+        capture("07a-correction-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
+        click("왼쪽으로 바꾸지 않았어요")
+        corrected = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "NOT_LEFT" and r.get("revision", 0) > restored['revision'], "corrected lane observation")
+        assert corrected['id'] == sid and corrected['assessment']['status'] == "NO_DEDUCTION" and not corrected['assessment']['mistake']
+        assert not corrected['nextPractice'], "Corrected error still drives next-practice recommendation"
+        checks["observer_correction_removes_error"] = corrected['assessment']
+        capture("08-no-deduction", ("연습 결과", "이 구간은\n감점하지 않았어요"))
+        click("확인 내용 수정")
+        capture("08a-unseen-review", ("주차 후 확인", "보지 못했어요"))
+        click("보지 못했어요")
+        unseen = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "UNSEEN" and r.get("revision", 0) > corrected['revision'], "unseen observation")
+        assert unseen['assessment']['status'] == "HELD" and not unseen['assessment']['mistake']
+        checks["unseen_is_unassessed"] = unseen['assessment']
+        capture("09-unseen-held", ("이번 점수는 보류했어요", "기록 보기"))
+        click("확인 내용 수정")
+        capture("09a-final-review", ("주차 후 확인", "왼쪽으로 바꿨어요"))
+        click("왼쪽으로 바꿨어요")
+        confirmed_again = wait_report(lambda r: r.get("id") == sid and r.get("observation") == "LEFT" and r.get("revision", 0) > unseen['revision'], "restored confirmed error")
+        assert confirmed_again['assessment']['mistake'], confirmed_again
+        checks["restored_confirmed_error"] = confirmed_again['assessment']
 finally:
     b = baseline['body']['doors']
     restore_errors = []
@@ -300,12 +325,12 @@ finally:
     if old_location:
         lat, lon, *_ = old_location.split(',')
         try:
-            adb("emu", "geo", "fix", lon, lat)
+            fix(lat, lon)
         except Exception as error:
             restore_errors.append("GPS restore: " + str(error))
     elif args.restore_lat and args.restore_lon:
         try:
-            adb("emu", "geo", "fix", args.restore_lon, args.restore_lat)
+            fix(args.restore_lat, args.restore_lon)
         except Exception as error:
             restore_errors.append("GPS restore: " + str(error))
     checks['restoration_complete'] = not restore_errors
