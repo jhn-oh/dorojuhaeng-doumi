@@ -149,6 +149,25 @@ class PracticeTest {
     }
     @Test fun aStableOnChangeUxValueDoesNotExpireByAgeAlone() { assertTrue(canReview(snapshot(100000), 100000)) }
     @Test fun staleSpeedDoesNotUnlockReview() { assertFalse(canReview(snapshot(1000), 5000)) }
+    @Test fun parkingSignalLossLocksTheLessonWithoutEndingItUntilDrivingIsConfirmed() {
+        val parked = snapshot(1000)
+        for (unknown in listOf(parked - "gear", parked - "ux", parked - "speed",
+            parked + ("gear" to Signal("0", "VALID", receivedMs = 1000)),
+            parked + ("speed" to Signal("NaN", "VALID", receivedMs = 1000)),
+            parked + ("ux" to Signal("true,1", "ERROR")))) {
+            assertFalse(canReview(unknown, 1000))
+            assertFalse(guideDrivingConfirmed(unknown, 1000))
+        }
+        assertFalse(canReview(parked, 5000))
+        assertFalse(guideDrivingConfirmed(parked, 5000))
+        assertTrue(canReview(snapshot(5000), 5000))
+        for (driving in listOf(snapshot(5000, gear = "8"), snapshot(5000, gear = "2"),
+            snapshot(5000, speed = "-0.05") - "gear", parked + ("ux" to Signal("true,0", "VALID")),
+            parked + ("ux" to Signal("false,1", "VALID")))) {
+            assertTrue(guideDrivingConfirmed(driving, 5000))
+            assertFalse(canReview(driving, 5000))
+        }
+    }
     @Test fun malformedAndOutOfRangeLocationAreRejected() {
         assertNull(locationPoint(Signal("NaN,127.03,0,5,1", "VALID", receivedMs = 1000), 1000))
         assertNull(locationPoint(Signal("91,127.03,0,5,1", "VALID", receivedMs = 1000), 1000))

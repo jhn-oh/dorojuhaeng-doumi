@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -25,9 +26,14 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: Long, wide: Boolean,
-                         returnPage: Page, close: () -> Unit, open: (GuideTopic) -> Unit) {
+                         returnPage: Page, parked: Boolean, close: () -> Unit, open: (GuideTopic) -> Unit) {
     var section by rememberSaveable { mutableStateOf(GuideSection.START) }
     val listScroll = rememberScrollState()
+    val lessonState = key(topic) { rememberSaveableStateHolder() }
+    if (!parked) {
+        LockScreen(false)
+        return
+    }
     val returnButton: @Composable (Boolean) -> Unit = { primary ->
         GuideButton(returnPage.guideReturnLabel(), Modifier.fillMaxWidth().padding(top = 12.dp), primary = primary, onClick = close)
     }
@@ -38,7 +44,7 @@ internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: 
             }
             returnButton(true)
         }
-    } else key(topic) {
+    } else lessonState.SaveableStateProvider(topic.name) {
         GuideLesson(topic, signals, now, wide, returnButton)
     }
 }

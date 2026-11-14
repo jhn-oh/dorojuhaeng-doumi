@@ -251,7 +251,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     }
     private fun closeRestrictedGuideTopic(now: Long) {
         val current = state.value
-        if (current.guideTopic != null && !canReview(signals(), now)) {
+        if (current.guideTopic != null && guideDrivingConfirmed(signals(), now)) {
             state.value = current.copy(page = if (guideOpenedDirectly) current.guideReturnPage else Page.GUIDE, guideTopic = null)
         }
     }
@@ -268,6 +268,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         }
         if (p == Page.GUIDE) {
             // Returning to an in-progress preparation step must preserve its confirmations.
+            if (!canReview(signals(), SystemClock.elapsedRealtime())) return
             if (state.value.guideTopic != null && !guideOpenedDirectly) state.value = state.value.copy(guideTopic = null)
             else closeGuide()
             return

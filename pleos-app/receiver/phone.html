@@ -21,6 +21,7 @@ article { white-space: pre-wrap; padding: 1rem 1.15rem; border-radius: 1rem; bac
 <script>
 "use strict";
 const el = id => document.getElementById(id);
+window.addEventListener("hashchange", () => { if (location.hash) location.reload(); });
 const link = location.hash.slice(1) || sessionStorage.getItem("practiceLink") || "";
 if (location.hash) { sessionStorage.setItem("practiceLink", link); history.replaceState(null,"",location.pathname); }
 const [id, token] = link.split(".");

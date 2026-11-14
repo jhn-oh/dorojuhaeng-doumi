@@ -131,6 +131,18 @@ fun canReview(signals: Map<String, Signal>, now: Long): Boolean {
     return speed.fresh(now) && abs(speed?.value?.toDoubleOrNull() ?: Double.POSITIVE_INFINITY) < 0.05 &&
         gear.fresh(now) && gear?.value == "4" && ux?.quality == "VALID" && ux.value == "false,0"
 }
+
+/** Missing parking evidence locks the lesson; only positive evidence ends it. */
+internal fun guideDrivingConfirmed(signals: Map<String, Signal>, now: Long): Boolean {
+    val speed = signals["speed"]?.takeIf { it.fresh(now) }?.value?.toDoubleOrNull()
+    if (speed != null && speed.isFinite() && abs(speed) >= 0.05) return true
+    val gear = signals["gear"]?.takeIf { it.fresh(now) }?.value?.toIntOrNull()
+    // AAOS uses positive single-bit values for individual gears, 4 for Park and 0 for unknown.
+    if (gear != null && gear > 0 && gear != 4 && Integer.bitCount(gear) == 1) return true
+    val ux = signals["ux"]?.takeIf { it.quality == "VALID" }?.value ?: return false
+    return ux.substringBefore(',') == "true" || (ux.substringAfter(',', "").toIntOrNull() ?: 0) > 0
+}
+
 fun distanceMeters(a: GeoPoint, b: GeoPoint): Double {
     val lat = Math.toRadians((a.lat + b.lat) / 2)
     return hypot((a.lat - b.lat) * 111_195.0, (a.lon - b.lon) * 111_195.0 * cos(lat))

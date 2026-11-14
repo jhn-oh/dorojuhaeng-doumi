@@ -116,7 +116,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                         Header(ui, c, parked, onLegal = { legal = true })
                         Spacer(Modifier.height(36.dp))
                         if (ui.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Copy("기록을 불러오고 있어요", 40, p.second) }
-                        else if (!parked && ui.page != Page.DRIVING) LockScreen(ui.session?.phase == SessionPhase.RECORDING)
+                        else if (!parked && ui.page != Page.DRIVING && ui.page != Page.GUIDE) LockScreen(ui.session?.phase == SessionPhase.RECORDING)
                         else Box(Modifier.weight(1f)) {
                             when (ui.page) {
                                 Page.WELCOME -> Preparation(wide, R.drawable.figma_warning, 0, "연습면허로 운전하나요?", "연습운전면허와 주행연습 표지를 준비하세요.\n이 차종 면허를 딴 지 2년이 지났고 면허가 유효한 분에게 지도를 받으세요.", { Action("확인했어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptIntro); Link("이미 운전면허가 있어요", modifier = Modifier.fillMaxWidth(), onClick = c::acceptLicensed) })
@@ -164,7 +164,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                 Page.NOTEBOOK -> NotebookScreen(ui, wide, c)
                                 Page.LESSON -> LessonScreen(ui, c)
                                 Page.DIAGNOSTICS -> Diagnostics(signals, c)
-                                Page.GUIDE -> GuideScreen(ui.guideTopic, signals, ui.now, wide, ui.guideReturnPage, c::closeGuide, c::openGuideTopic)
+                                Page.GUIDE -> GuideScreen(ui.guideTopic, signals, ui.now, wide, ui.guideReturnPage, parked, c::closeGuide, c::openGuideTopic)
                             }
                         }
                         ui.error?.let { error -> Copy(error, 26, p.blue); if (error.startsWith("기록을 저장") && ui.session != null) Link("다시 저장하기", onClick = c::retrySave) }
@@ -703,7 +703,7 @@ private fun turnEvidence(event: TurnEvent?): String = listOfNotNull(
         signals.forEach { (key, s) -> Copy("$key   ${s.value ?: s.quality}", 26, weight = FontWeight.Medium); Copy("${s.source} · ${s.origin}${s.error?.let { "\n$it" } ?: ""}", 22, LocalPalette.current.second); Spacer(Modifier.height(20.dp)) }
     }
 }
-@Composable private fun LockScreen(recording: Boolean) {
+@Composable internal fun LockScreen(recording: Boolean) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Copy(if (recording) "주행 기록을 남기고 있어요" else "주차한 뒤에 이어서 확인해요", 54, weight = FontWeight.SemiBold, align = TextAlign.Center)
         Spacer(Modifier.height(30.dp)); Copy("차를 세우고 P단에 두세요.\n화면 조작이 가능해지면 이어서 볼 수 있어요.", 32, LocalPalette.current.second, align = TextAlign.Center)
