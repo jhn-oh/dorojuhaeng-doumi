@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--serial", default="emulator-5580")
 parser.add_argument("--adb", default=r"C:\AndroidSDK\platform-tools\adb.exe")
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--dashboard-return", action="store_true",
+                    help="From departure check 1/3, 2/3 or 3/3, verify the instrument lesson and return to exactly that check.")
 args = parser.parse_args()
 args.output.mkdir(exist_ok=True, parents=True)
 checks = {}
@@ -141,6 +143,31 @@ try:
         back()
     entry = wait_text("설명서")
     origin = visible(entry)
+    if args.dashboard_return:
+        assert "출발 준비" in origin, "Open the departure checklist before running --dashboard-return"
+        step = next(text for text in origin if text in ("1 / 3", "2 / 3", "3 / 3"))
+        report_cmd = ("run-as", "kr.juhyu.licensenote", "--user", user, "cat", "files/last-report.json")
+        has_report_cmd = ("run-as", "kr.juhyu.licensenote", "--user", user, "ls", "files")
+        previous = shell(*report_cmd) if "last-report.json" in shell(*has_report_cmd).splitlines() else None
+        click("설명서")
+        wait_text("내 차 익히기")
+        click("계기판 읽기")
+        wait_text("속도계를 찾아요")
+        click("다음 단계")
+        wait_text("단위를 함께 읽어요")
+        click("다시 보기")
+        wait_text("40 km/h")
+        click("다음 단계")
+        capture("instrument-gear", wait_text("기어 표시를 구별해요"))
+        click("출발 점검 계속하기")
+        resumed = wait_text(step)
+        assert "출발 준비" in visible(resumed) and "내 차 익히기" not in visible(resumed)
+        current = shell(*report_cmd) if "last-report.json" in shell(*has_report_cmd).splitlines() else None
+        assert current == previous, "Reading the manual must preserve the previous report"
+        capture("resumed-checklist", resumed)
+        checks.update(returnedStep=step, reportPreserved=True)
+        print(f"Dashboard lesson returned to departure check {step}", flush=True)
+        raise SystemExit(0)
     click("설명서")
     root = dashboard()
     deadline = time.monotonic() + 12

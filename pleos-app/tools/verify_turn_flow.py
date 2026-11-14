@@ -162,6 +162,11 @@ def click(text, optional=False):
         try:
             root = probe()
             candidates = [n for n in root.iter("node") if n.get("text") == text]
+            if not candidates and text.endswith("답변 수정") and "연습 결과" in visible(root):
+                # Corrections live below the two turn cards on the results scroll surface.
+                if time.monotonic() < deadline:
+                    scroll_body()
+                    continue
             if not candidates and optional:
                 return False
             if any(n.get("enabled") == "true" for n in candidates):
@@ -335,7 +340,10 @@ def capture(name, required=()):
     time.sleep(.8)
     navigation_before = navigation_snapshot() if args.capture_navigation_evidence and name.startswith("02") else None
     root = probe()
-    assert set(required).issubset(visible(root)), (name, visible(root))
+    while not set(required).issubset(visible(root)) or root.find("node").get("bounds") != f"[{bounds[0]},{bounds[1]}][{bounds[2]},{bounds[3]}]":
+        assert time.monotonic() < until, (name, visible(root), bounds, root.find("node").get("bounds"))
+        time.sleep(.3)
+        root = probe()
     (out / (name + ".xml")).write_text(ET.tostring(root, encoding="unicode"), encoding="utf-8")
     png = subprocess.check_output([args.adb, "-s", args.serial, "exec-out", "screencap", "-p"], timeout=30)
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
