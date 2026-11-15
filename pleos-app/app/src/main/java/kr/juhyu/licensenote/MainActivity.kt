@@ -31,9 +31,13 @@ class MainActivity : ComponentActivity() {
     private var focusRestoreAttempts = 0
     private var pendingFocusRestore: Runnable? = null
     private var telemetryBound = false
+    private var telemetryBinder: TelemetryService.LocalBinder? = null
     private val telemetryConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) = Unit
-        override fun onServiceDisconnected(name: ComponentName) = Unit
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            telemetryBinder = service as TelemetryService.LocalBinder
+            telemetryBinder?.visible(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        }
+        override fun onServiceDisconnected(name: ComponentName) { telemetryBinder = null }
     }
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startTelemetry() }
     private fun startTelemetry() {
@@ -147,14 +151,20 @@ class MainActivity : ComponentActivity() {
         super.onUserLeaveHint()
     }
 
+    override fun onStart() {
+        super.onStart()
+        telemetryBinder?.visible(true)
+    }
+
     override fun onStop() {
         cancelFontFocusRecovery("stopped")
+        telemetryBinder?.visible(false)
         super.onStop()
     }
 
     override fun onDestroy() {
         cancelFontFocusRecovery("destroyed")
-        if (telemetryBound) { unbindService(telemetryConnection); telemetryBound = false }
+        if (telemetryBound) { unbindService(telemetryConnection); telemetryBound = false; telemetryBinder = null }
         super.onDestroy()
     }
 

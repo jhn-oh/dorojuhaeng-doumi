@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 import android.util.AtomicFile
 
 class LicenseApp : Application() {
+    @Volatile internal var videoBelt: Boolean? = null
     private val state = MutableStateFlow<Map<String, Signal>>(emptyMap())
     private var currentSignals = emptyMap<String, Signal>()
     val signals = state.asStateFlow()
@@ -23,8 +24,10 @@ class LicenseApp : Application() {
         super.onCreate()
         coordinator = PracticeCoordinator(this, { currentSignals }, { state.value = currentSignals })
     }
-    fun accept(key: String, value: Signal) {
+    fun accept(key: String, input: Signal) {
         coordinator.dispatch {
+            val value = if (BuildConfig.VIDEO_CAPTURE && android.os.Build.HARDWARE in setOf("ranchu", "goldfish") && key == "belt" && videoBelt != null)
+                input.copy(value = videoBelt.toString(), quality = "VALID", source = "Emulator/Seat", origin = "INJECTED") else input
             val previous = currentSignals[key]
             currentSignals = currentSignals + (key to value)
             if (previous?.value != value.value || previous?.quality != value.quality || previous?.error != value.error) state.value = currentSignals

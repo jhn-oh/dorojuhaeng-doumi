@@ -21,9 +21,9 @@ internal enum class GuideSection(val label: String) {
 }
 
 enum class GuideTopic(val title: String, internal val section: GuideSection, val subtitle: String) {
-    SPEED("계기판 읽기", GuideSection.START, "속도와 기어 표시"),
-    SIGNAL("깜빡이 켜는 법", GuideSection.START, "왼쪽 · 오른쪽"),
-    WIPER("와이퍼 한 번 쓰기", GuideSection.WEATHER, "MIST 표시"),
+    SPEED("내 차 빠르게 익히기", GuideSection.START, "계기판 한눈에 · 깜빡이 · 와이퍼"),
+    SIGNAL("깜빡이 켜 보기", GuideSection.START, "직접 조작하면 자동 확인"),
+    WIPER("와이퍼 작동해 보기", GuideSection.WEATHER, "직접 조작하면 자동 확인"),
     BELT("안전벨트 경고 읽기", GuideSection.INDICATORS, "운전석 미착용"),
     WASHER("워셔액 경고 읽기", GuideSection.INDICATORS, "워셔액 부족"),
     MIRRORS("사이드미러 맞추기", GuideSection.START, "왼쪽 L · 오른쪽 R"),
@@ -104,9 +104,7 @@ internal fun guideDoorSummary(signals: Map<String, Signal>, now: Long): String {
 
 internal fun GuideTopic.steps(alternate: Boolean) = when (this) {
     GuideTopic.SPEED -> listOf(
-        GuideStep("속도계를 찾아요", "계기판에서 km/h 표시를 찾으세요. 지금 차가 얼마나 빠르게 움직이는지 알려주는 곳이에요."),
-        GuideStep("단위를 함께 읽어요", "예시 바늘이 0에서 40으로 움직여요. 40 km/h는 시속 40킬로미터라는 뜻이에요."),
-        GuideStep("기어 표시를 구별해요", "D는 드라이브, P는 파킹이에요. 차가 멈춰 있어도 기어는 드라이브일 수 있어요.")
+        GuideStep("출발 전 계기판 확인", "속도와 기어, 연료·배터리 잔량을 한눈에 확인하세요. 차량이 제공한 값만 표시해요.")
     )
     GuideTopic.SIGNAL -> listOf(
         GuideStep("깜빡이 레버를 찾아요", "핸들 왼쪽 레버에서 화살표 표시를 찾으세요. 내 차의 조작 위치를 먼저 확인하세요."),

@@ -3,11 +3,31 @@ package kr.juhyu.licensenote
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import java.util.Locale
+import kotlin.math.roundToInt
+
+internal fun observedTurnActivation(signal: Signal?, opened: Long, now: Long): Boolean {
+    if (!signal.fresh(now, 2000) || signal?.source != "Vehicle/TurnSignal") return false
+    val parts = signal.value?.split(',') ?: return false
+    val off = parts.firstOrNull()?.toLongOrNull() ?: return false
+    return parts.size == 2 && parts[1] in setOf("LEFT", "RIGHT") && opened > 0 && off >= opened && signal.receivedMs - off in 0..5000
+}
+
+internal fun vehicleOverviewValue(key: String, signal: Signal?, now: Long): String {
+    if (signal?.quality == "UNSUPPORTED") return "차량 미지원"
+    if (signal?.quality == "DENIED") return "권한 확인 필요"
+    if (!signal.fresh(now, if (key in setOf("fuel_percent", "battery_percent")) 5000 else 2500)) return "확인 중"
+    return when (key) {
+        "speed" -> signal?.value?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 && it <= 100 }?.let { "${(it * 3.6).roundToInt()} km/h" }
+        "gear" -> when (signal?.value?.toIntOrNull()) { 4 -> "P"; 8 -> "D"; 2 -> "R"; 1 -> "N"; else -> null }
+        "fuel_percent", "battery_percent" -> signal?.value?.toIntOrNull()?.takeIf { it in 0..100 }?.let { "$it%" }
+        else -> null
+    } ?: "확인 중"
+}
 
 internal fun observedWiperActivation(signal: Signal?, opened: Long, now: Long): Boolean {
     if (!signal.fresh(now, 2000) || signal?.source != "Vehicle/Wiper") return false
     val off = signal.value?.toLongOrNull() ?: return false
-    return opened > 0 && off >= opened && signal.receivedMs >= off
+    return opened > 0 && off >= opened && signal.receivedMs - off in 0..5000
 }
 
 internal fun wiperLabel(signal: Signal?, now: Long): String = when {

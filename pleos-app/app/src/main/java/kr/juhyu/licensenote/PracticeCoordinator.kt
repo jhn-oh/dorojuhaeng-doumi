@@ -41,6 +41,9 @@ data class PracticeUi(
     val searchStarted: Long = 0,
     val searchResult: NativeDestination? = null,
     val chosenNative: NativeDestination? = null,
+    val plannedRoute: PracticeRoute? = null,
+    val routeLoading: Boolean = false,
+    val routeMessage: String? = null,
 )
 class PracticeCoordinator(private val context: Context, private val signals: () -> Map<String, Signal>, private val publishSignals: () -> Unit) {
     private val stateThread = HandlerThread("PracticeState").apply { start() }
@@ -55,6 +58,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     private var pageBeforeDiagnostics = Page.COURSE
     private var guideOpenedDirectly = false
     private var savingError = false
+    private var loopRequest = 0L
     private val introContentVersion = 1
     // Existing accepted notices carried this same wording before the version field existed.
     private fun acceptedIntroVersion() = preferences.getInt("introVersion", if (preferences.getBoolean("introSeen", false)) 1 else 0)
@@ -82,8 +86,41 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         val now = SystemClock.elapsedRealtime()
         if (current.page != Page.COURSE || current.courseStep != CourseStep.DESTINATION || !canReview(signals(), now)) return@dispatch
         val destination = selectedNativeDestination(signals(), current.searchStarted, now) ?: return@dispatch
-        state.value = current.copy(selectedRouteId = destination.route().id, previewOrigin = CourseStep.DESTINATION,
-            courseStep = CourseStep.PREVIEW, chosenNative = destination, error = null)
+        planLoop(15, destination)
+    }
+    fun planLocalLoop(minutes: Int = 10) = dispatch { planLoop(minutes.coerceIn(5, 45)) }
+    private fun planLoop(minutes: Int, via: NativeDestination? = null) {
+        val current = state.value
+        val now = SystemClock.elapsedRealtime()
+        if (current.page != Page.COURSE || current.routeLoading || !canReview(signals(), now)) return
+        val origin = locationPoint(signals()["location"], now)
+        if (origin == null) {
+            state.value = current.copy(error = "현재 위치를 확인하고 있어요. 위치 권한과 GPS 수신을 확인한 뒤 다시 눌러 주세요.", routeMessage = null)
+            return
+        }
+        val request = ++loopRequest
+        state.value = current.copy(routeLoading = true, routeMessage = "현재 위치 주변에서 돌아오는 길을 찾고 있어요.", plannedRoute = null, error = null)
+        io.execute {
+            val result = runCatching { LocalLoopPlanner.plan(origin, minutes, via) }
+            main.post {
+                if (loopRequest != request) return@post
+                val latest = state.value
+                val point = locationPoint(signals()["location"], SystemClock.elapsedRealtime())
+                if (latest.page != Page.COURSE || !canReview(signals(), SystemClock.elapsedRealtime()) || point == null || distanceMeters(origin, point) > 100) {
+                    state.value = latest.copy(routeLoading = false, routeMessage = null, error = "출발 위치가 바뀌었어요. 주차 후 현재 위치에서 다시 찾아 주세요.")
+                    return@post
+                }
+                result.fold(onSuccess = { route ->
+                    state.value = latest.copy(plannedRoute = route, selectedRouteId = route.id, chosenNative = null,
+                        searchStarted = 0, searchResult = null, previewOrigin = latest.courseStep,
+                        courseStep = CourseStep.PREVIEW, routeLoading = false, routeMessage = null, error = null)
+                }, onFailure = {
+                    state.value = latest.copy(routeLoading = false, routeMessage = null,
+                        error = if (via == null) "약 ${minutes}분에 맞는 주변 코스를 찾지 못했어요. 다른 시간을 선택하거나 다시 시도해 주세요."
+                            else "주변에서 돌아오는 길을 찾지 못했어요. 위치와 네트워크를 확인한 뒤 다시 시도해 주세요.")
+                })
+            }
+        }
     }
     fun previousPractices(currentId: String, offset: Int, done: (Result<List<PreviousPractice>>) -> Unit) {
         io.execute {
@@ -93,8 +130,10 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     }
     fun courseStep(step: CourseStep) = dispatch {
         val current = state.value
-        if (current.page == Page.COURSE && step != CourseStep.PREVIEW && canReview(signals(), SystemClock.elapsedRealtime()))
-            state.value = current.copy(courseStep = step, error = null)
+        if (current.page == Page.COURSE && step != CourseStep.PREVIEW && canReview(signals(), SystemClock.elapsedRealtime())) {
+            loopRequest++
+            state.value = current.copy(courseStep = step, routeLoading = false, routeMessage = null, error = null)
+        }
     }
     fun courseInput(text: String, destination: Boolean) = dispatch {
         val current = state.value
@@ -103,19 +142,25 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     }
     fun submitCourseRequest(text: String) = dispatch {
         val current = state.value
-        if (current.page == Page.COURSE && current.courseStep == CourseStep.REQUEST && canReview(signals(), SystemClock.elapsedRealtime()))
-            state.value = current.copy(courseRequest = text.take(300), submittedRequest = text.take(300))
+        if (current.page != Page.COURSE || current.courseStep != CourseStep.REQUEST || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
+        state.value = current.copy(courseRequest = text.take(300), submittedRequest = text.take(300))
+        val duration = Regex("(\\d+)\\s*분").find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 10
+        if (duration !in 5..45) state.value = state.value.copy(error = "5~45분 사이로 입력해 주세요.")
+        else if (listOf("좌회전만", "우회전만", "넓은", "차로", "차선", "유턴").any { it in text.replace(" ", "") })
+            state.value = state.value.copy(error = "지금은 현재 위치에서 돌아오는 길과 예상 시간을 기준으로 찾아요. 특정 회전이나 차로 수 조건은 확인할 수 없어요.")
+        else planLoop(duration)
     }
     fun previewCourse(route: PracticeRoute) = dispatch {
         val current = state.value
         if (current.page == Page.COURSE && CourseCatalog.find(route.id) != null && canReview(signals(), SystemClock.elapsedRealtime()))
-            state.value = current.copy(selectedRouteId = route.id, previewOrigin = current.courseStep, courseStep = CourseStep.PREVIEW, chosenNative = null, searchStarted = 0, searchResult = null, error = null)
+            planLoop(route.minutes.coerceIn(5, 45))
     }
     fun openGuide(topic: GuideTopic? = null) = dispatch {
         val current = state.value
         if (!current.page.hasGuideEntry() || current.loading || current.saving || !canReview(signals(), SystemClock.elapsedRealtime())) return@dispatch
         guideOpenedDirectly = topic != null
-        state.value = current.copy(page = Page.GUIDE, guideTopic = topic, guideReturnPage = current.page)
+        loopRequest++
+        state.value = current.copy(page = Page.GUIDE, guideTopic = topic, guideReturnPage = current.page, routeLoading = false, routeMessage = null)
     }
     fun closeGuide() = dispatch {
         val current = state.value
@@ -214,6 +259,10 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
     }
     private fun doGo(page: Page) {
         if (!canReview(signals(), SystemClock.elapsedRealtime()) && page != Page.DRIVING) return
+        if (state.value.routeLoading) {
+            loopRequest++
+            state.value = state.value.copy(routeLoading = false, routeMessage = null)
+        }
         if (page == Page.BELT || (page == Page.COURSE && state.value.page in setOf(Page.RESULT, Page.NOTEBOOK))) {
             state.value = state.value.copy(page = Page.BELT, manualBelt = false, manualDoor = false, preflightConfirmed = false, resumePreviewAfterChecks = false, error = null)
             return
@@ -242,7 +291,7 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         if (current.page != Page.DOORS || !canReview(data, now) || !departureDoors(data, now).canConfirm(manual)) return
         val confirmed = current.copy(manualDoor = manual, preflightConfirmed = true, page = Page.COURSE, resumePreviewAfterChecks = false, error = null)
         state.value = if (current.resumePreviewAfterChecks) confirmed else confirmed.copy(courseStep = CourseStep.LIST,
-            courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null)
+            courseRequest = "", submittedRequest = null, destinationQuery = "", searchStarted = 0, searchResult = null, chosenNative = null, plannedRoute = null)
     }
     private fun doOnSignal(key: String, signal: Signal, previous: Signal?) {
         if (key == "belt" && state.value.manualBelt && signal.departureBelt(SystemClock.elapsedRealtime()) == DepartureBelt.UNFASTENED) {
@@ -263,6 +312,10 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         if (BuildConfig.DEBUG && canReview(signals(), SystemClock.elapsedRealtime())) context.startService(Intent(context, TelemetryService::class.java).setAction("PROBE_NAVIGATION"))
     }
     private fun doBack() {
+        if (state.value.routeLoading) {
+            loopRequest++
+            state.value = state.value.copy(routeLoading = false, routeMessage = null)
+        }
         val p = state.value.page
         if (p == Page.COURSE && state.value.courseStep != CourseStep.LIST) {
             val current = state.value
@@ -322,17 +375,24 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
             state.value = state.value.copy(courseStep = CourseStep.DESTINATION, chosenNative = null, error = "기본 내비 목적지가 변경되었거나 확인되지 않았어요. 다시 선택해 주세요.")
             return
         }
-        val route = active?.route() ?: CourseCatalog.find(state.value.selectedRouteId) ?: return
+        val route = state.value.plannedRoute ?: active?.route() ?: return
+        if (route.origin != null) {
+            val currentPoint = locationPoint(data["location"], now)
+            if (currentPoint == null || distanceMeters(route.origin, currentPoint) > 100) {
+                state.value = state.value.copy(error = "현재 위치가 출발 위치와 달라요. 현재 위치에서 코스를 다시 찾아 주세요.")
+                return
+            }
+        }
         val previousTurns = previous?.takeIf { it.rulesVersion >= 2 }?.let(PracticeEvaluator::turnAssessments).orEmpty()
         val targets = previousTurns.filter { it.practiceSuggested }.map { it.event.id.substringAfterLast(':') }
             .filter { id -> route.turns.any { it.id == id } }
         val statuses = previousTurns.filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
         engine = PracticeEngine(PracticeSession(courseId = route.id, courseVersion = route.version, rulesVersion = route.rulesVersion, startedAtMs = now, startedWallMs = System.currentTimeMillis(), manualDoor = state.value.manualDoor, manualBelt = state.value.manualBelt, expectedDoors = doors, dataGap = !turnReady,
             evidenceGaps = if (turnReady) emptyList() else listOf(EvidenceGap(now, now)),
-            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active))
+            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active, plannedRoute = state.value.plannedRoute))
         engine!!.tick(data, now)
         try {
-            ContextCompat.startForegroundService(context, Intent(context, TelemetryService::class.java).setAction("RECORD").putExtra("prepareCourseRoute", active == null).putExtra("courseId", route.id))
+            ContextCompat.startForegroundService(context, Intent(context, TelemetryService::class.java).setAction("RECORD").putExtra("prepareCourseRoute", active == null).putExtra("courseId", route.id).putExtra("plannedRoute", state.value.plannedRoute?.json()?.toString()))
             state.value = state.value.copy(page = Page.DRIVING, session = engine!!.session, assessment = null, error = null, preflightConfirmed = false, manualBelt = false, manualDoor = false)
             persist(engine!!.session)
         } catch (error: Exception) {

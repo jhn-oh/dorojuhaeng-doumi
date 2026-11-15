@@ -16,10 +16,10 @@ internal object GuideAnswers {
             "워셔액은 앞유리를 닦을 때 쓰는 액체예요. 안전하게 주차한 뒤 내 차 설명서에서 주입구를 확인하세요."),
         Entry(GuideTopic.BELT, "안전벨트|안전띠|벨트 경고등|벨트 착용 경고|안전띠 어떻게 매",
             "벨트가 꼬이지 않게 펴고 걸쇠를 버클에 끝까지 끼우세요. 가볍게 당겨 잠겼는지 확인하세요."),
-        Entry(GuideTopic.SIGNAL, "깜빡이|깜박이|방향지시등|깜빡이는 어떻게 켜|방향지시등 어떻게 쓰나요|차로 변경 전에 뭐부터 확인해|차선 변경할 때|좌회전할 때 깜빡이",
-            "옮겨갈 방향을 깜빡이로 알리세요. 거울과 사각지대를 직접 확인한 뒤 충분한 공간이 있을 때 움직이세요."),
+        Entry(GuideTopic.SIGNAL, "깜빡이|깜박이|방향지시등|깜빡이는 어떻게 켜|방향지시등 어떻게 쓰나요|차로 변경 전에 뭐부터 확인해|차선 변경할 때|좌회전할 때 깜빡이|왼쪽 깜빡이 켜고 싶은데 어떻게 켜면 돼|오른쪽 깜빡이 어떻게 켜",
+            "설명서 기준으로 방향지시등 레버는 핸들 왼쪽에 있어요. 왼쪽은 레버를 아래로, 오른쪽은 위로 조작하세요. 계기판의 화살표가 깜빡이는지 확인하세요. 차종에 따라 조작 방법은 다를 수 있어요."),
         Entry(GuideTopic.SPEED, "속도계|계기판 속도|킬로미터 표시|기어 표시|기어 D랑 P",
-            "계기판의 km/h는 시속이에요. 기어 표시에서 D는 전진, P는 주차를 뜻해요."),
+            "출발 전 속도와 기어, 연료나 배터리 잔량을 확인하세요. 주행 중에는 도로 제한속도와 계기판 속도를 함께 확인하세요."),
         Entry(GuideTopic.MIRRORS, "사이드미러|사이드 미러 조절|거울 각도|옆 거울|실외 미러|뒷차가 보이게 거울",
             "거울은 주차 중에 맞추세요. 평소 운전 자세로 앉아 양쪽 거울과 룸미러로 옆과 뒤가 보이는지 확인하세요."),
         Entry(GuideTopic.DOOR, "문 열림|차 문이 열렸어|어느 문이 열린 거야|트렁크 열린 표시",
@@ -61,11 +61,15 @@ internal object GuideAnswers {
         val (best, score) = ranked.first()
         if (score < 0.37 || score - ranked[1].second < 0.11) return null
         if (best.topic == GuideTopic.PARKING_BRAKE && listOf("주차", "파킹", "epb").none { it in words }) return null
-        return HandbookAnswer(best.topic, best.answer)
+        val answer = if (best.topic == GuideTopic.SIGNAL) {
+            val left = listOf("왼쪽", "좌측", "좌회전").any { it in words }
+            val right = listOf("오른쪽", "우측", "우회전").any { it in words }
+            if (left != right) {
+                val side = if (left) "왼쪽" else "오른쪽"
+                val action = if (left) "아래로 내리세요" else "위로 올리세요"
+                "설명서 기준으로 방향지시등 레버는 핸들 왼쪽에 있어요. $side 깜빡이는 레버를 $action. 계기판의 $side 화살표가 깜빡이는지 확인하세요. 차종에 따라 조작 방법은 다를 수 있어요."
+            } else best.answer
+        } else best.answer
+        return HandbookAnswer(best.topic, answer)
     }
-}
-
-internal fun wakeQuestion(transcript: String): String? {
-    val match = Regex("^\\s*도움\\s*(?:에이\\s*아이|AI)[\\s,!.?]*", RegexOption.IGNORE_CASE).find(transcript) ?: return null
-    return transcript.substring(match.range.last + 1).trim()
 }

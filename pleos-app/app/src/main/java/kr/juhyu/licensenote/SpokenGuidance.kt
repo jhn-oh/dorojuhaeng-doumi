@@ -11,12 +11,13 @@ import kotlin.math.roundToInt
 
 /** Spoken instructions use the same evidence as the currently visible parked screen. */
 internal fun parkedInstruction(ui: PracticeUi, signals: Map<String, Signal>): String? = when (ui.page) {
+    Page.WELCOME -> "연습면허와 주행연습 표지를 준비하고, 자격을 갖춘 지도자와 함께 연습하세요. 준비사항을 확인한 뒤 출발 준비를 시작할게요."
     Page.BELT -> when (signals["belt"].departureBelt(ui.now)) {
         DepartureBelt.FASTENED -> "운전석 안전벨트가 채워졌어요. 다음으로 넘어가세요."
         DepartureBelt.UNFASTENED -> "운전석 안전벨트를 매 주세요."
         DepartureBelt.UNAVAILABLE -> "안전벨트 신호를 확인할 수 없어요. 벨트를 매고 직접 확인해 주세요."
     }
-    Page.MIRROR -> "룸미러와 양쪽 사이드미러가 잘 보이는지 확인해 주세요."
+    Page.MIRROR -> "운전석 위치를 편하게 맞추고, 룸미러와 양쪽 사이드미러로 옆과 뒤가 잘 보이는지 확인해 주세요."
     Page.DOORS -> {
         val doors = departureDoors(signals, ui.now)
         when {
@@ -26,9 +27,10 @@ internal fun parkedInstruction(ui: PracticeUi, signals: Map<String, Signal>): St
         }
     }
     Page.COURSE -> if (ui.courseStep == CourseStep.PREVIEW) {
-        val routeName = ui.chosenNative?.name ?: CourseCatalog.find(ui.selectedRouteId)?.name
+        val routeName = ui.chosenNative?.name ?: ui.plannedRoute?.name ?: CourseCatalog.find(ui.selectedRouteId)?.name
         routeName?.let { "${it.replace('·', ' ')} 코스를 선택했어요. 준비되면 연습을 시작하세요." }
-    } else null
+    } else if (ui.courseStep == CourseStep.LIST) "원하는 연습 시간을 선택하세요. 현재 위치에서 출발해 다시 돌아오는 코스를 찾아드려요." else null
+    Page.SHARE -> "휴대폰 카메라로 결과 큐알 코드를 읽으면 차량 밖에서도 이번 연습을 복습할 수 있어요."
     Page.RESULT -> ui.assessment?.let { assessment ->
         when {
             ui.session?.vehicleReview != true -> null
@@ -42,9 +44,9 @@ internal fun parkedInstruction(ui: PracticeUi, signals: Map<String, Signal>): St
 }
 
 internal fun instrumentInstruction(step: Int): String? = when (step) {
-    0 -> "속도계는 지금 차가 얼마나 빠르게 움직이는지 알려 줘요."
-    1 -> "예시 속도계의 바늘을 보세요. 숫자 사십은 시속 사십 킬로미터예요."
-    2 -> "기어 표시에서 드라이브는 전진, 파킹은 주차를 뜻해요. 차가 멈춰 있어도 기어는 드라이브일 수 있어요."
+    0 -> "출발 전 속도, 기어, 연료나 배터리 잔량을 한 번에 확인하세요."
+    1 -> "정차한 상태에서 왼쪽이나 오른쪽 깜빡이를 켜 보세요. 이미 켜져 있다면 끄고 다시 켜세요."
+    2 -> "와이퍼를 한 번 작동해 보세요. 유리가 마른 상태라면 물을 충분히 묻힌 뒤 조작하세요."
     else -> null
 }
 

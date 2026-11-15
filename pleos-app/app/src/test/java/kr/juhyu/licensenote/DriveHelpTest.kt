@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DriveHelpTest {
+    @Test fun directionalQuestionsExplainTheStalkAndTheRequestedOperation() {
+        val left = GuideAnswers.find("왼쪽 깜빡이 켜고 싶은데 어떻게 켜면 돼?")!!
+        assertEquals(GuideTopic.SIGNAL, left.topic)
+        assertTrue(left.text.contains("핸들 왼쪽"))
+        assertTrue(left.text.contains("아래로 내리세요"))
+        assertTrue(left.text.contains("왼쪽 화살표"))
+        val right = GuideAnswers.find("오른쪽 깜빡이 어떻게 켜?")!!
+        assertTrue(right.text.contains("위로 올리세요"))
+        assertTrue(right.text.contains("오른쪽 화살표"))
+        assertNull(GuideAnswers.find("지금 왼쪽으로 차선 변경해도 돼?"))
+    }
     @Test fun spokenTurnUsesOnlyLivePracticeDistanceAndSkipsNativeOrLateCues() {
         val source = "선택 코스 · 차량 위치 기준"
         val approach = DriveCue("약 55 m 앞 좌회전 연습", source, "LEFT", 54)
@@ -39,11 +50,6 @@ class DriveHelpTest {
         assertNull(GuideAnswers.find("와이퍼 수리 비용"))
         assertEquals(GuideTopic.SIGNAL, GuideAnswers.find("깜빡이는 어떻게 켜는 거야")?.topic)
         assertNull(GuideAnswers.find(""))
-    }
-    @Test fun explicitListeningWindowRequiresWakeWordAtStart() {
-        assertEquals("와이퍼 어떻게 켜", wakeQuestion("도움 에이 아이, 와이퍼 어떻게 켜"))
-        assertEquals("", wakeQuestion("도움AI"))
-        assertNull(wakeQuestion("옆에서 도움AI라고 했어"))
     }
     @Test fun bothAxesMustComeFromOneFreshFiniteSensorSample() {
         val m = motionSample(9.80665f, -9.80665f, 100L, 200L)!!

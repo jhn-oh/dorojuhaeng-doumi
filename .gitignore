@@ -1,10 +1,11 @@
 # Only the app, its approved design specifications, and selected delivery evidence belong here.
 /*
 !/.gitignore
+!/README.md
 !/.github/
 !/apk/
 /apk/*
-!/apk/도로주행도우미_release.apk
+!/apk/오주현_도로주행도우미_release.apk
 !/pleos-app/
 !/앱기능구조.md
 !/outputs/
@@ -13,6 +14,14 @@
 /outputs/hq-delivery/*
 !/outputs/hq-delivery/검수.md
 !/outputs/hq-delivery/공식기준_평가.md
+!/outputs/release-057/
+/outputs/release-057/*
+!/outputs/release-057/verification.json
+!/outputs/release-057/submission-requirements.json
+!/outputs/release-057/route-0-10-minutes.png
+!/outputs/release-057/app-live-guidance-state.png
+!/outputs/release-057/native-actual-guidance.png
+!/outputs/release-057/app-genuine-cancellation.png
 !/outputs/course-routing-20261114/
 /outputs/course-routing-20261114/*
 !/outputs/course-routing-20261114/검증.md

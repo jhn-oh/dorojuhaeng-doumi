@@ -66,10 +66,17 @@ internal class PleosVehicleSession(
     private val guideReadDue = mutableMapOf<String, Long>()
     private val guideRequests = mutableMapOf<String, Long>()
     private var frontWiper: WindowArea? = null
+    private var previousTurn: TurnSignalValue? = null
+    private var turnOffAt = 0L
+    private var turnCallbackVersion = 0L
+    private var wiperCallbackVersion = 0L
     private var previousWiper: WiperState? = null
     private var wiperOffAt = 0L
     private val wiperListener = object : WiperStateListener {
-        override fun onWiperStateUpdated(state: WiperState?) = onInput { recordWiper(state, "CALLBACK") }
+        override fun onWiperStateUpdated(state: WiperState?) = onInput {
+            wiperCallbackVersion++
+            recordWiper(state, "CALLBACK")
+        }
         override fun onFailed(e: Exception) = onInput {
             previousWiper = null
             wiperOffAt = 0
@@ -79,6 +86,7 @@ internal class PleosVehicleSession(
     }
 
     private fun releaseWiper() {
+        wiperCallbackVersion++
         frontWiper?.let { runCatching { vehicle.getWiper().unregisterWiperState(it, wiperListener) } }
         frontWiper = null
         previousWiper = null
@@ -94,6 +102,14 @@ internal class PleosVehicleSession(
         previousWiper = state
         send("wiper_front", state?.name, "Vehicle/Wiper", origin)
     }
+    private fun recordTurn(state: TurnSignalValue?, origin: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (previousTurn?.name == "OFF" && state?.name in setOf("LEFT", "RIGHT") && now - turnOffAt in 0..5000)
+            send("turn_activation", "$turnOffAt,${state?.name}", "Vehicle/TurnSignal", origin)
+        if (state?.name == "OFF") turnOffAt = now
+        previousTurn = state
+        send("turn", state?.name, "Vehicle/TurnSignal", origin)
+    }
     @Volatile private var seatArea: SeatArea? = null
     private val doors = java.util.concurrent.ConcurrentHashMap<DoorArea, DoorPositionListener>()
     private fun beltFailed(error: Exception) = onInput {
@@ -107,6 +123,9 @@ internal class PleosVehicleSession(
     }
     private fun turnFailed(error: Exception) = onInput {
         turnSubscribed = false
+        turnCallbackVersion++
+        previousTurn = null
+        turnOffAt = 0L
         fail("turn", error)
         fail("turn_subscription", error)
     }
@@ -129,7 +148,10 @@ internal class PleosVehicleSession(
         override fun onFailed(e: Exception) = beltFailed(e)
     }
     private val turnListener = object : TurnSignalStateListener {
-        override fun onTurnSignalStateUpdated(state: TurnSignalValue?) = send("turn", state?.name, "Vehicle/TurnSignal", "CALLBACK")
+        override fun onTurnSignalStateUpdated(state: TurnSignalValue?) = onInput {
+            turnCallbackVersion++
+            recordTurn(state, "CALLBACK")
+        }
         override fun onFailed(e: Exception) = turnFailed(e)
     }
     private val steeringListener = object : SteeringWheelAngleListener {
@@ -252,7 +274,8 @@ internal class PleosVehicleSession(
                 // The distributed 2.3.2 AAR exposes Exception; the public symbolic codes
                 // survive obfuscation in its message. Other errors stay indeterminate.
                 val unsupported = error.message == "ERROR_NOT_SUPPORTED_PROPERTY" || error.message == "ERROR_NOT_SUPPORTED_AREA"
-                finish(Signal(quality = if (unsupported) "UNSUPPORTED" else "ERROR", error = error.message),
+                val denied = error is SecurityException || error.message == "ERROR_SECURITY_PERMISSION"
+                finish(Signal(quality = if (unsupported) "UNSUPPORTED" else if (denied) "DENIED" else "ERROR", error = error.message),
                     if (unsupported) 30000 else 4000)
             }
             try {
@@ -281,6 +304,10 @@ internal class PleosVehicleSession(
             property<Int>("vehicle_usage_minutes", "Vehicle/Odometer", distance::checkTripCumulativeDrivingTimeCapabilities, distance::getTripCumulativeDrivingTime)
         }
         if (!guide) return
+        val fuel = vehicle.getFuel()
+        property<Int>("fuel_percent", "Vehicle/Fuel", fuel::checkFuelPercentCapabilities, fuel::getFuelPercent)
+        val battery = vehicle.getEvBattery()
+        property<Int>("battery_percent", "Vehicle/EvBattery", battery::checkEvBatteryStateOfChargeCapabilities, battery::getEvBatteryStateOfCharge)
         val wiper = vehicle.getWiper()
         read<WiperState>("wiper_front", "Vehicle/Wiper") { value, failed, unsupported ->
             val checkFailed: (Exception) -> Unit = { error -> onInput { releaseWiper(); failed(error) } }
@@ -294,7 +321,12 @@ internal class PleosVehicleSession(
                         frontWiper = windshield
                         wiper.registerWiperState(windshield, wiperListener)
                     }
-                    wiper.getCurrentWiperState(windshield, { state -> onInput { recordWiper(state, "READ"); value(state) } }, checkFailed)
+                    val version = wiperCallbackVersion
+                    wiper.getCurrentWiperState(windshield, { state -> onInput {
+                        // A read queued before a callback must not rewind the observed control state.
+                        if (version == wiperCallbackVersion) { recordWiper(state, "READ"); value(state) }
+                        else value(previousWiper)
+                    } }, checkFailed)
                 } catch (e: Exception) { checkFailed(e) }
             } }, checkFailed)
         }
@@ -343,7 +375,12 @@ internal class PleosVehicleSession(
             val key = "door:" + area.values.joinToString("+") { it.name }
             runCatching { vehicle.getDoor().getCurrentDoorPosition(area, { send(key, it, "Vehicle/Door") }, { doorFailed(area, it) }) }.onFailure { doorFailed(area, Exception(it)) }
         }
-        if (turnSubscribed) runCatching { vehicle.getTurnSignal().getCurrentTurnSignalState({ send("turn", it?.name, "Vehicle/TurnSignal") }, { turnFailed(it) }) }.onFailure { turnFailed(Exception(it)) }
+        if (turnSubscribed) runCatching {
+            val version = turnCallbackVersion
+            vehicle.getTurnSignal().getCurrentTurnSignalState({ onInput {
+                if (version == turnCallbackVersion) recordTurn(it, "READ")
+            } }, { turnFailed(it) })
+        }.onFailure { turnFailed(Exception(it)) }
         if (steeringSubscribed) runCatching {
             vehicle.getSteeringWheel().getCurrentSteeringWheelAngle({ steeringAngle(it, "READ") }, { steeringFailed(it) })
         }.onFailure { steeringFailed(Exception(it)) }

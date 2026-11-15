@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>도로주행 도우미 · 연습 결과</title><style>
+<title>도로주행도우미 · 연습 결과</title><style>
 :root { color-scheme: light dark; font: 100%/1.6 system-ui, sans-serif; --ink: #15273b; --muted: #506174; --paper: #fff; --surface: #f3f6fa; --edge: #798899; --action: #1658c4; --action-text: #fff; }
 @media (prefers-color-scheme:dark) { :root { --ink: #ecf3fc; --muted: #b6c8dc; --paper: #101922; --surface: #1c2a39; --edge: #8da5bc; --action: #abcbff; --action-text: #10294c; } }
 * { box-sizing: border-box; }
@@ -15,7 +15,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--action); ou
 article { white-space: pre-wrap; padding: 1rem 1.15rem; border-radius: 1rem; background: var(--surface); }
 #ack, #save { margin-top: .75rem; }
 #save { background: var(--surface); color: var(--ink); }
-</style></head><body><main><small>도로주행 도우미</small><h1>연습 기록 받기</h1><p id="status" role="status">차량에 표시할 기기 이름을 입력해 주세요.</p>
+</style></head><body><main><small>도로주행도우미</small><h1>연습 기록 받기</h1><p id="status" role="status">차량에 표시할 기기 이름을 입력해 주세요.</p>
 <form id="pair"><label>받을 기기 이름<input id="alias" value="내 휴대폰" required maxlength="32"></label><button>이 기기로 연결</button></form>
 <article id="report" aria-label="이번 연습 기록" hidden></article><button id="ack" hidden>이 기록을 받았어요</button><button id="save" hidden>텍스트 파일로 저장</button></main>
 <script>

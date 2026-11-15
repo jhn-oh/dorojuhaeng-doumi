@@ -71,6 +71,7 @@ data class PracticeSession(
     val previousSessionId: String? = null,
     val previousTargetStatuses: Map<String, String> = emptyMap(),
     val nativeDestination: NativeDestination? = null,
+    val plannedRoute: PracticeRoute? = null,
 )
 internal const val VEHICLE_REVIEW_RULES = 5
 val PracticeSession.vehicleReview get() = rulesVersion >= VEHICLE_REVIEW_RULES

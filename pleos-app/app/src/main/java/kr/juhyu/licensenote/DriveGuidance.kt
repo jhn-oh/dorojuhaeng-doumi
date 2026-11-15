@@ -68,10 +68,35 @@ internal fun driveCue(session: PracticeSession, signals: Map<String, Signal>, no
     val route = signals["navigation_route"]?.takeIf { it.fresh(now, 6500) }?.value
     val status = signals["navigation_status"]
     // On Connect 2.1 the native UI can guide while isRouting=false and the separate status callback is absent.
+    val mode = route?.substringAfter(',')
     val guidanceActive = status?.let { it.quality == "VALID" && it.value == "ROUTE_DRIVE" } == true ||
-        route?.substringAfter(',') == "ROUTE_GUIDING" || route?.startsWith("true,") == true
+        mode in setOf("ROUTE_GUIDING", "SIMULATION_GUIDING") || route?.startsWith("true,") == true
     if (separation != null && separation > 100 && guidanceActive) {
         return DriveCue("정차 후 경로를 확인하세요", "차량과 기본 내비 위치가 달라요")
+    }
+    if (session.practiceRoute.origin != null) {
+        // A planned loop is a road-model preview, not the native engine's exact geometry.
+        // Show that provider's current guidance without treating it as a scored practice turn.
+        if (!guidanceActive || separation == null || separation > 50) {
+            return DriveCue("기본 내비에서 경로를 확인하세요", "내비 위치 확인 중")
+        }
+        val source = if (mode == "SIMULATION_GUIDING") "기본 내비 모의주행" else "기본 내비 안내"
+        val first = signals["native_course_tbt"]?.takeIf {
+            it.fresh(now, 3500) && it.receivedMs >= session.startedAtMs
+        }?.value?.split('|', limit = 4)
+        if (first?.size != 4 || first[0] != session.courseId) return DriveCue("길과 방향은 기본 내비에서 확인하세요", source)
+        val metres = first[2].toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..50_000.0 }
+            ?.roundToInt() ?: return DriveCue("길과 방향은 기본 내비에서 확인하세요", source)
+        val direction = when {
+            "UTURN" in first[1] -> "유턴"
+            "LEFT" in first[1] -> "좌회전"
+            "RIGHT" in first[1] -> "우회전"
+            first[1] == "TURN_WAY" -> "경유지"
+            first[1] == "TURN_ARRIVE" -> "도착지"
+            else -> first[3].ifBlank { "다음 안내 지점" }
+        }
+        return DriveCue(if (metres < 5) "$direction 지점 부근" else "${metres} m 후 $direction", source,
+            when { "LEFT" in first[1] -> "LEFT"; "RIGHT" in first[1] -> "RIGHT"; else -> null }, metres)
     }
     // The first provider TBT is usable only when the provider independently sees the same car,
     // active destination/waypoints, direction, and nearby course distance.

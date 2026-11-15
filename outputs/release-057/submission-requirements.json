@@ -1,0 +1,24 @@
+{
+  "checkedDateKst": "2026-11-15",
+  "source": "https://appdevchallenge.auto-hmg.io/guide/submission",
+  "notice": "https://appdevchallenge.auto-hmg.io/notice/c0a1a000-2026-4923-8000-000000000007",
+  "apkDirectory": "apk/",
+  "fileNamePattern": "팀명_앱이름_release.apk",
+  "participantConfirmedByUser": "오주현",
+  "entryType": "individual",
+  "apkPath": "apk/오주현_도로주행도우미_release.apk",
+  "readmeMustInclude": [
+    "app name and one-line description",
+    "run instructions",
+    "test environment and required settings",
+    "Pleos emulator version and screen dimensions",
+    "APK path or release link"
+  ],
+  "submissionCommitRequired": true,
+  "privateRepositoryMayBeUsedAtSubmission": true,
+  "publicBy": "2026-11-16",
+  "keepPublicThrough": "2026-11-23",
+  "privateAlternative": "Source and APK ZIP download URL in submission email before deadline",
+  "repositoryVisibilityChanged": false,
+  "applicationEmailSent": false
+}

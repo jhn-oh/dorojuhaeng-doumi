@@ -14,13 +14,15 @@ data class PracticeRoute(
     val waypoints: List<GeoPoint> = turns.map { it.corner },
     val distance: Int = points.zipWithNext().sumOf { (a, b) -> distanceMeters(a, b) }.roundToInt(),
     val verifiedArterial: Boolean = false,
+    val origin: GeoPoint? = null,
+    val routingSource: String = "",
 ) {
     val version = 1
     val rulesVersion = VEHICLE_REVIEW_RULES
     val isLanePractice get() = id == LegacyLaneCourse.id
-    val finish get() = points.last()
+    val finish get() = origin ?: points.last()
     val minutes = ceil((routingSeconds ?: (distance / (15_000.0 / 3600) + 20 * waypoints.size)) / 60).toInt()
-    val exercises = if (verifiedArterial) "편도 3~5차로 · 일반도로" else if (isLanePractice) "왼쪽 차로 변경 연습 구간" else turns.joinToString(" · ") { "${it.direction.label} 1회" }
+    val exercises = if (origin != null) "현재 위치 출발 · 경유지 ${waypoints.size}곳 · 출발 위치로 복귀" else if (verifiedArterial) "편도 3~5차로 · 일반도로" else if (isLanePractice) "왼쪽 차로 변경 연습 구간" else turns.joinToString(" · ") { "${it.direction.label} 1회" }
     val stats = "${distance} m   약 ${minutes}분   $exercises"
 }
 
@@ -74,7 +76,7 @@ object CourseCatalog {
 }
 
 // Old lane-change reports were stored under the default turn-course ID.
-val PracticeSession.practiceRoute get() = nativeDestination?.route() ?: if (rulesVersion == 1) CourseCatalog.lane else CourseCatalog.find(courseId) ?: CourseCatalog.full
+val PracticeSession.practiceRoute get() = plannedRoute ?: nativeDestination?.route() ?: if (rulesVersion == 1) CourseCatalog.lane else CourseCatalog.find(courseId) ?: CourseCatalog.full
 
 data class CourseMatch(val routes: List<PracticeRoute> = emptyList(), val message: String = "")
 

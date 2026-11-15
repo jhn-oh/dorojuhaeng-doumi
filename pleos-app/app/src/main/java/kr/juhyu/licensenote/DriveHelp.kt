@@ -5,6 +5,8 @@ import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -18,11 +20,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -109,12 +115,14 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var shown by rememberSaveable(session.id) { mutableStateOf("") }
     var readingAnswer by remember(session.id) { mutableStateOf(false) }
+    var transcript by remember(session.id) { mutableStateOf("") }
+    var voiceOpen by remember(session.id) { mutableStateOf(false) }
     val sessionId = session.id
     val ux = signals["ux"]
     val canUseVoice = ux?.quality == "VALID" && ux.value?.substringAfter(',')?.toIntOrNull()?.let {
         it and android.car.drivingstate.CarUxRestrictions.UX_RESTRICTIONS_NO_VOICE_TRANSCRIPTION == 0
     } == true
-    LaunchedEffect(canUseVoice) { if (!canUseVoice) voice.client.stop() }
+    LaunchedEffect(canUseVoice) { if (!canUseVoice) { voice.client.stop(); voiceOpen = false } }
     LaunchedEffect(voice.busy) { if (!voice.busy) readingAnswer = false }
     fun answer(text: String) {
         val found = GuideAnswers.find(text)
@@ -122,6 +130,15 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
         shown = found?.text ?: unmatched
         readingAnswer = true
         voice.client.speak(shown, SystemClock.elapsedRealtime() + 4_000)
+    }
+    fun listen() {
+        transcript = ""
+        shown = ""
+        voiceOpen = true
+        voice.client.listen(onPartial = { transcript = it }) { input ->
+            transcript = input
+            answer(input)
+        }
     }
     val active = session.turns.lastOrNull()?.takeIf { it.exitMs == null && now - it.entryMs in 0L..3000L }
     val turn = signals["turn"]?.takeIf { it.fresh(now) }?.value
@@ -152,7 +169,7 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
         else -> "지난 질문은 주차 후 확인하세요."
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (feedback.isNotEmpty() || (canUseVoice && parked && !voice.busy)) {
+        if (feedback.isNotEmpty() && !voiceOpen) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
@@ -160,23 +177,10 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
                         liveRegion = LiveRegionMode.Polite
                     })
                 }
-                if (canUseVoice && parked && !voice.busy) TextButton(onClick = {
-                    shown = "“도움AI”라고 부른 뒤 질문하세요."
-                    voice.client.listen { input ->
-                        val question = wakeQuestion(input)
-                        when {
-                            question == null -> shown = "호출어를 듣지 못했어요."
-                            question.isBlank() -> { shown = "질문해 주세요."; voice.client.listen(::answer) }
-                            else -> answer(question)
-                        }
-                    }
-                }) {
-                    Copy("호출어 듣기", 22, p.blue)
-                }
             }
         }
         // This space stays reserved when parking or changing the app window width.
-        val fabWidth = (98 + 114 * LocalAppTextScale.current).dp
+        val fabWidth = 82.dp
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
             Row(Modifier.fillMaxWidth().padding(end = fabWidth + 18.dp).heightIn(min = 82.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -187,25 +191,53 @@ private fun saveQuestion(context: Context, sessionId: String, question: String, 
                         voice.client.stop()
                         readingAnswer = false
                         shown = ""
+                        voiceOpen = false
                     } else {
-                        shown = ""
-                        voice.client.listen(::answer)
+                        listen()
                     }
                 },
                 enabled = canUseVoice,
                 shape = CircleShape,
                 color = if (canUseVoice) p.blue else p.light,
                 contentColor = if (canUseVoice) p.onAction else p.muted,
-                modifier = Modifier.width(fabWidth).testTag("drive-help-fab").semantics { role = Role.Button }
+                modifier = Modifier.size(fabWidth).testTag("drive-help-fab").semantics {
+                    role = Role.Button
+                    contentDescription = if (stop) "음성 중지" else "음성으로 질문하기"
+                }
                     .shadow(if (canUseVoice) 8.dp else 0.dp, CircleShape)
             ) {
-                Row(Modifier.heightIn(min = 82.dp).padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(painterResource(if (stop) R.drawable.voice_stop else R.drawable.voice_mic),
-                        contentDescription = null, modifier = Modifier.size(32.dp))
-                    Copy(if (stop) "음성 중지" else "도움 AI", 26,
-                        if (canUseVoice) p.onAction else p.muted, FontWeight.SemiBold)
+                        contentDescription = null, modifier = Modifier.size(34.dp))
+                }
+            }
+        }
+    }
+    if (voiceOpen && canUseVoice) {
+        fun close() { voiceOpen = false; voice.client.stop(); readingAnswer = false }
+        Dialog(onDismissRequest = ::close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxWidth(.92f).fillMaxHeight(.88f).testTag("voice-transcript-overlay"),
+                shape = RoundedCornerShape(28.dp), color = p.paper) {
+                Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Copy(if (voice.client.listening) "듣고 있어요" else if (readingAnswer) "답변 중" else "음성 질문",
+                        24, p.second)
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Copy(transcript.ifBlank { "궁금한 내용을 말해 주세요" }, 44,
+                            if (transcript.isBlank()) p.muted else p.ink, FontWeight.SemiBold, TextAlign.Center,
+                            modifier = Modifier.testTag("voice-live-transcript").semantics { liveRegion = LiveRegionMode.Polite })
+                        if (!voice.client.listening && shown.isNotBlank()) {
+                            Spacer(Modifier.height(24.dp))
+                            Copy(shown, 26, p.second, align = TextAlign.Center)
+                        }
+                    }
+                    if (!voice.client.listening && !readingAnswer && voice.feedback.isNotBlank())
+                        Copy(voice.feedback, 23, p.second, align = TextAlign.Center)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        TextButton(onClick = ::close) { Copy("닫기", 24, p.second) }
+                        if (!voice.busy) VoiceButton("다시 말하기", ::listen)
+                        else VoiceButton("음성 중지", ::close)
+                    }
                 }
             }
         }

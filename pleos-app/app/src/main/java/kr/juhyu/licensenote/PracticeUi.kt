@@ -146,7 +146,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
                                             DepartureBelt.UNAVAILABLE -> Action("벨트를 맸어요", modifier = Modifier.fillMaxWidth()) { c.confirmBelt(true) }
                                             DepartureBelt.UNFASTENED -> Unit
                                         }
-                                        Link("계기판 읽기", modifier = Modifier.fillMaxWidth()) { c.openGuide(GuideTopic.SPEED) }
+                                        Link("내 차 빠르게 익히기", modifier = Modifier.fillMaxWidth()) { c.openGuide(GuideTopic.SPEED) }
                                     })
                                 }
                                 Page.MIRROR -> Preparation(wide, R.drawable.figma_mirror, 2, "거울을 맞춰 주세요", "먼저 좌석을 몸에 맞추세요.\n룸미러와 양쪽 사이드미러가 잘 보이나요?", {
@@ -240,7 +240,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     Row(Modifier.fillMaxWidth().heightIn(min = 83.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             if (ui.page !in setOf(Page.WELCOME, Page.DRIVING, Page.RESULT)) IconButton(onClick = c::back, enabled = parked, modifier = Modifier.size(76.dp).semantics { contentDescription = "뒤로" }) { FigmaIcon(R.drawable.figma_back, 64, LocalPalette.current.second) }
-            Copy(when(ui.page) { Page.WELCOME, Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> if (ui.session?.vehicleReview == true) "주행 복습" else "오답노트"; Page.LESSON -> if (ui.session?.practiceRoute?.isLanePractice == true) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
+            Copy(when(ui.page) { Page.WELCOME -> "도로주행도우미"; Page.DRIVING -> "운전 연습"; Page.BELT, Page.MIRROR, Page.DOORS -> "출발 준비"; Page.COURSE -> when (ui.courseStep) { CourseStep.PREVIEW -> "경로 미리보기"; CourseStep.UTURN_LESSON, CourseStep.TRAFFIC_LESSON -> "정차 중 학습"; else -> "연습 코스" }; Page.RESULT -> "연습 결과"; Page.SHARE -> "휴대폰으로 보내기"; Page.NOTEBOOK -> if (ui.session?.vehicleReview == true) "주행 복습" else "오답노트"; Page.LESSON -> if (ui.session?.practiceRoute?.isLanePractice == true) "차로 변경 연습" else "회전 연습"; Page.DIAGNOSTICS -> "SDK 연결 확인"; Page.GUIDE -> "운전 설명서" }, 29, LocalPalette.current.second, FontWeight.Medium)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (canChangeText && ui.page.hasGuideEntry()) Link("설명서") { c.openGuide() }
@@ -287,28 +287,22 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         }
         return
     }
-    val route = CourseCatalog.find(ui.selectedRouteId) ?: return
-    val recommendation = remember(ui.session, route.id) { CourseCatalog.recommendation(ui.session) }
-    Column(Modifier.fillMaxSize()) {
-        val text: @Composable ColumnScope.() -> Unit = {
-            Copy(route.name, if (wide) 74 else 58, weight = FontWeight.SemiBold)
-            Spacer(Modifier.height(20.dp))
-            Copy(route.exercises, 34, p.second)
-            if (recommendation == route) EvidenceCard("이번 연습 목표", "지난번과 같은 구간에서 회전 방향의 깜빡이 기록을 비교해 보세요.")
-            Spacer(Modifier.height(32.dp))
-            Copy("${route.distance} m   약 ${route.minutes}분", 58, p.blue, FontWeight.SemiBold)
-            Copy(if (route.verifiedArterial) "Valhalla 자동차 경로 예상 · 실시간 교통 미반영" else if (route.routingSeconds != null) "OSRM 자동차 경로 예상 · 실시간 교통 미반영" else "모의 주행 속도 15 km/h 기준", 26, p.muted)
-            if (route.verifiedArterial) Copy("편도 차로 수는 국가교통정보센터 표준링크 자료와 대조했어요. 기본 내비에서 다른 길로 안내하면 이 조건을 다시 확인하세요.", 26, p.second)
-            Copy("${route.departure} → ${route.destination}", 30, p.second)
-            Copy(if (route.isLanePractice) "에뮬레이터 전용 가상 구간이에요." else "에뮬레이터용 코스 · 실제 도로 통행 조건 미확인", 26, p.muted)
-            Spacer(Modifier.height(20.dp))
-            Copy(if (route.waypoints.isEmpty()) "시작하면 기본 내비의 기존 목적지를 이 도착점으로 변경해요." else "시작하면 기본 내비의 기존 경로를 경유지 ${route.waypoints.size}곳과 이 목적지로 변경해요.", 28, p.second)
+    val route = ui.plannedRoute ?: CourseCatalog.find(ui.selectedRouteId) ?: return
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Copy(route.name, if (wide) 64 else 48, weight = FontWeight.SemiBold)
+            Copy(if (route.origin != null) "현재 위치 출발 · 한 바퀴 돌고 출발지로 복귀" else "선택한 코스", 30, p.blue)
+            Copy(route.exercises, 30, p.second)
+            Copy("${"%.1f".format(route.distance / 1000.0)} km   약 ${route.minutes}분", if (wide) 54 else 42,
+                p.blue, FontWeight.SemiBold)
+            Copy("도로 경로 모델 예상 · 실제 길과 소요 시간은 기본 내비에서 확인하세요.", 25, p.second)
+            EvidenceCard("기본 내비로 길 안내", "현재 위치 → 주변 경유지 ${route.waypoints.size}곳 → 출발지\n우리 앱에서는 차량 조작과 연습 기록을 확인해요.")
+            Copy("시작하면 기본 내비의 경유지와 목적지가 이 코스로 변경돼요.", 26, p.second)
+            Copy("연습에 적합한 도로인지 동승자와 확인하세요.", 24, p.muted)
         }
-        if (wide) Row(Modifier.weight(1f).fillMaxWidth().padding(top = 60.dp), horizontalArrangement = Arrangement.spacedBy(70.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), content = text)
-            CourseMap(locationPoint(signals["location"], ui.now), Modifier.weight(1f).height(570.dp), route = route)
-        } else Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { text(); Spacer(Modifier.height(30.dp)); CourseMap(locationPoint(signals["location"], ui.now), Modifier.fillMaxWidth().height(330.dp), route = route) }
-        Action("이 코스로 시작", enabled = !ui.saving, modifier = Modifier.widthIn(max = 900.dp).fillMaxWidth().align(Alignment.CenterHorizontally), onClick = c::start)
+        Action("기본 내비로 연습 시작", enabled = !ui.saving && !ui.routeLoading,
+            modifier = Modifier.widthIn(max = 900.dp).fillMaxWidth(), onClick = c::start)
         Link("다른 코스 보기", modifier = Modifier.fillMaxWidth(), onClick = c::back)
     }
 }
@@ -320,8 +314,8 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
     val instruction = driveCue(s, signals, ui.now)
     val navigation = signals["navigation_request"]?.takeIf { it.receivedMs >= s.startedAtMs }
     val elapsed = ((ui.now - s.startedAtMs) / 1000).coerceAtLeast(0)
-    val subtitle = if (s.practiceTargets.isEmpty()) instruction.source else
-        instruction.source + " · 복습 코스"
+    val source = if (BuildConfig.VIDEO_CAPTURE) instruction.source.replace("모의주행", "안내") else instruction.source
+    val subtitle = if (s.practiceTargets.isEmpty()) source else source + " · 복습 코스"
     val next: @Composable () -> Unit = {
         Copy(subtitle, if (wide) 26 else 23, p.blue, FontWeight.Medium)
         Copy(instruction.title, if (wide) 58 else 47, p.ink, FontWeight.SemiBold, TextAlign.Center, style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading))
@@ -332,31 +326,19 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         val label = when (mode) { "NORMAL" -> "일반"; "ECO" -> "에코"; "SPORT" -> "스포츠"; else -> null }
         Copy("기록 중 · ${elapsed / 60}분 ${elapsed % 60}초" + (label?.let { " · ${it} 모드" } ?: ""), 22, p.second)
     }
-    val point = locationPoint(signals["location"], ui.now)
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (destination != null) {
-            Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Copy("기본 내비 안내", 29, p.blue)
-                Copy(destination.name, if (wide) 56 else 44, weight = FontWeight.SemiBold)
-                Copy("길과 방향은 기본 내비에서 확인하세요.", 28, p.second)
-                DriveMotionMeter(signals["speed"])
+        Column(Modifier.weight(1f).fillMaxWidth().then(if (parked) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            if (destination != null) {
+                Copy("기본 내비 안내", 28, p.blue)
+                Copy(destination.name, if (wide) 56 else 42, weight = FontWeight.SemiBold, align = TextAlign.Center)
+            } else {
+                next()
+                Copy(if (s.practiceRoute.origin != null) "한 바퀴 돌고 출발지로 돌아와요" else s.practiceRoute.name, 25, p.second,
+                    align = TextAlign.Center)
             }
-        } else if (wide) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
-                CourseMap(point, Modifier.weight(1f).fillMaxHeight(), linksEnabled = parked, route = s.practiceRoute)
-                Column(Modifier.weight(1f).then(if (parked) Modifier.verticalScroll(rememberScrollState()) else Modifier),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    next(); tools()
-                }
-            }
-        } else {
-            next()
-            Spacer(Modifier.height(12.dp))
-            CourseMap(point, Modifier.fillMaxWidth().weight(1f), linksEnabled = parked, route = s.practiceRoute)
-            Spacer(Modifier.height(12.dp))
-            DriveMotionMeter(signals["speed"])
-            Copy("기록 중 · ${elapsed / 60}분 ${elapsed % 60}초", 22, p.second)
+            Copy("길과 방향은 옆의 기본 내비에서 확인하세요.", 25, p.second, align = TextAlign.Center)
+            tools()
         }
         if (parked && destination == null) NavigationStatus(navigation)
         DriveHelp(s, parked, signals, ui.now) {
@@ -380,6 +362,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
             "SEARCHING" -> "기본 내비가 경로를 찾는 중"
             "ROUTE_READY" -> "기본 내비에서 선택한 경유지와 목적지 확인"
             "GUIDING_UNCONFIRMED" -> "기본 내비 안내 중 · 경유지 확인 필요"
+            "GUIDING_OTHER_ROUTE" -> "기본 내비 안내 중 · 선택 코스 확인 필요"
             "CANCELLED" -> "기본 내비 안내 취소"
             "ARRIVED" -> "기본 내비에서 도착 알림"
             else -> return

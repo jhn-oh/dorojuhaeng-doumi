@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver android:name=".ShowcaseControl" android:exported="true">
+            <intent-filter><action android:name="local.pleos.VIDEO_BELT" /></intent-filter>
+        </receiver>
+    </application>
+</manifest>

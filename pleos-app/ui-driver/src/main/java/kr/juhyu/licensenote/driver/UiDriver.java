@@ -89,7 +89,7 @@ public class UiDriver extends Instrumentation {
         } catch (Exception error) { result.putString("error", error.toString()); finish(1, result); }
     }
     private AccessibilityNodeInfo find(AccessibilityNodeInfo node, String text) {
-        if (node.isVisibleToUser() && node.getText() != null && text.contentEquals(node.getText())) return node;
+        if (node.isVisibleToUser() && ((node.getText() != null && text.contentEquals(node.getText())) || (node.getContentDescription() != null && text.contentEquals(node.getContentDescription())))) return node;
         for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo child = node.getChild(i); if (child != null) { AccessibilityNodeInfo match = find(child, text); if (match != null) return match; } }
         return null;
     }

@@ -13,7 +13,7 @@ internal fun reportText(s: PracticeSession): String {
     val score = assessment.score
     val duration = s.endedAtMs?.let { ((it - s.startedAtMs).coerceAtLeast(0) / 1000) }
     return buildString {
-        appendLine("도로주행 도우미 · " + s.practiceRoute.name)
+        appendLine("도로주행도우미 · " + s.practiceRoute.name)
         if (duration != null) appendLine("연습 시간 " + duration / 60 + "분 " + duration % 60 + "초")
         if (s.vehicleReview) appendLine("차량 신호로 정리한 연습 기록")
         else if (score != null) appendLine("연습 점수 ${score}점 · 46개 감점 항목 중 ${assessment.checked}개 확인")

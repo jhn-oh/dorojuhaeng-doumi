@@ -45,7 +45,9 @@ internal fun GuideScreen(topic: GuideTopic?, signals: Map<String, Signal>, now: 
             returnButton(true)
         }
     } else lessonState.SaveableStateProvider(topic.name) {
-        GuideLesson(topic, signals, now, wide, returnButton)
+        if (topic in setOf(GuideTopic.SPEED, GuideTopic.SIGNAL, GuideTopic.WIPER))
+            CompactVehicleLesson(topic, signals, now, wide, returnButton)
+        else GuideLesson(topic, signals, now, wide, returnButton)
     }
 }
 

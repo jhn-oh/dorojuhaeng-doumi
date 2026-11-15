@@ -1,0 +1,131 @@
+{
+  "checkedAtUtc": "2026-11-15T12:44:52.057160+00:00",
+  "app": "도로주행도우미",
+  "participant": "오주현",
+  "version": "0.5.7",
+  "versionCode": 23,
+  "apkPath": "apk/오주현_도로주행도우미_release.apk",
+  "apkBytes": 42989144,
+  "sha256": "e429498b6e6e64a5f78a76ec802f6645409da8599c46b9c8e1eb74f3ed0bf295",
+  "certificateSha256": "a16b03ac9f1f10a76b16dc0a2a0c5c44b3018f3a7c891468a2b7b3169b32c882",
+  "fileChecks": {
+    "zipCrc": true,
+    "dexHeaders": true,
+    "manifest": true,
+    "releaseSignature": true,
+    "zipAlignment": true,
+    "notDebuggable": true,
+    "noShowcaseReceiver": true,
+    "installedApkHashMatches": true,
+    "sameSignerAs056": true,
+    "soleCanonicalApk": true
+  },
+  "environment": {
+    "image": "Pleos Connect 2.1.0",
+    "android": "14 / API 34 x86_64",
+    "emulator": "36.6.11",
+    "screen": "2560x1440 / 160dpi",
+    "gpu": "host, Vulkan disabled",
+    "freshDedicatedAvd": true,
+    "appStateInjected": false,
+    "physicalCar": false
+  },
+  "build": {
+    "release": true,
+    "tests": 93,
+    "failures": 0,
+    "errors": 0,
+    "lintErrors": 0,
+    "lintWarnings": 7
+  },
+  "runtime": {
+    "durationAndNavigation": {
+      "version": "0.5.7",
+      "routes": [
+        {
+          "requestedMinutes": 10,
+          "previewMinutes": 11,
+          "label": "2.4 km   약 11분",
+          "secondsToGenerate": 4.9
+        },
+        {
+          "requestedMinutes": 20,
+          "status": "No matching safe-road loop; explicit retry/time-change message",
+          "previewShown": false
+        },
+        {
+          "requestedMinutes": 30,
+          "previewMinutes": 29,
+          "label": "13.0 km   약 29분",
+          "secondsToGenerate": 4.37
+        },
+        {
+          "requestedMinutes": 10,
+          "previewMinutes": 11,
+          "label": "2.4 km   약 11분",
+          "secondsToGenerate": 4.34
+        }
+      ],
+      "scope": "Stock Pleos 2.1.0, unmodified signed release; virtual GNSS, no physical car",
+      "durationRegressionPassed": true,
+      "reconnectedUnbuckledBlocked": true,
+      "liveGuidanceNoLongerMislabeledCancelled": true,
+      "nativeAfterStopControl": [
+        "수정구 시흥동",
+        "어디로 갈까요?"
+      ],
+      "realCancellationStillDisplayed": true,
+      "recordSavedAndRestored": true,
+      "qrDisplayed": true
+    },
+    "vehicleLesson": {
+      "alreadyOnBlocked": true,
+      "indicatorOffToOnAdvanced": true,
+      "wiperOffToOnCompleted": true,
+      "lessonWhileMovingLocked": true
+    },
+    "savedResultRestored": true,
+    "qrIndependentlyDecoded": true,
+    "appCrashOrAnrObserved": false
+  },
+  "voice": {
+    "recordedQuestion": {
+      "sttFinal": true,
+      "ttsCompleted": true,
+      "intendedAnswerMatched": false,
+      "observedTranscript": "조금 많이 보고 싶",
+      "appResponse": "이 질문은 설명서에서 확인하기 어려워요. 안전하게 주차한 뒤 차량 설명서를 확인하세요.",
+      "limitation": "Recorded question was misrecognized; this is not a validated recognition-rate claim"
+    },
+    "clearSyntheticQuestion": {
+      "input": "Windows Heami synthetic Korean question: 와이퍼는 어떻게 켜요?",
+      "physicalMicrophone": false,
+      "questionSha256": "a03b19475cc41d5db745fb6263c319537002af3d711cbb015e90d3b4b8ee9310",
+      "sttAndTtsCompleted": true,
+      "correctWiperExplanation": true,
+      "speakerCaptureExitCode": 0
+    }
+  },
+  "defender": {
+    "sha256": "e429498b6e6e64a5f78a76ec802f6645409da8599c46b9c8e1eb74f3ed0bf295",
+    "exitCode": 0,
+    "result": "No threats detected by local Windows Defender at check time"
+  },
+  "evidence": {
+    "tenMinutePreview": "route-0-10-minutes.png",
+    "appGuidanceState": "app-live-guidance-state.png",
+    "nativeGuidance": "native-actual-guidance.png",
+    "genuineCancellation": "app-genuine-cancellation.png"
+  },
+  "limits": [
+    "Road durations are routing-model estimates, not measured trip times",
+    "Matching 20-minute safe-road loop unavailable at the tested origin; user sees explicit retry/other-time guidance",
+    "No complete waypoint-by-waypoint/full-loop road drive",
+    "No physical vehicle/cabin-noise or long-duration thermal validation",
+    "Emulator seat-belt ON fixture not used; departure tests used blocked unbuckled or explicit manual confirmation while provider unavailable",
+    "Native guidance and app state agree; full waypoint parity remains labeled unconfirmed"
+  ],
+  "submissionRequirements": "submission-requirements.json",
+  "repositoryVisibilityChanged": false,
+  "applicationEmailSent": false
+}

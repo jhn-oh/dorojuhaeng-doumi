@@ -74,6 +74,10 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         }
         persistedCounts[id] = samples.size
         val p = data.optJSONObject("passage")
+        val plannedRoute = data.optJSONObject("plannedRoute")?.let(::parsePlannedRoute)
+        check(!data.getString("courseId").startsWith("local-loop-") || plannedRoute != null) {
+            "Saved current-location route is missing or invalid"
+        }
         return PracticeSession(
             id = id, courseId = data.getString("courseId"), courseVersion = data.getInt("courseVersion"), rulesVersion = data.getInt("rulesVersion"),
             startedAtMs = data.getLong("startedAtMs"), startedWallMs = data.getLong("startedWallMs"),
@@ -101,6 +105,7 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
             previousSessionId = if (data.isNull("previousSessionId")) null else data.getString("previousSessionId"),
             previousTargetStatuses = data.optJSONObject("previousTargetStatuses")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } } ?: emptyMap(),
             nativeDestination = data.optJSONObject("nativeDestination")?.let(NativeDestination::parse),
+            plannedRoute = plannedRoute,
         )
     }
     fun metadata(s: PracticeSession): JSONObject = JSONObject().put("schemaVersion", 1).put("id", s.id).put("courseId", s.courseId).put("courseVersion", s.courseVersion).put("rulesVersion", s.rulesVersion)
@@ -118,4 +123,5 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         .put("practiceTargets", JSONArray(s.practiceTargets)).put("previousSessionId", s.previousSessionId ?: JSONObject.NULL)
         .put("previousTargetStatuses", JSONObject(s.previousTargetStatuses))
         .put("nativeDestination", s.nativeDestination?.json() ?: JSONObject.NULL)
+        .put("plannedRoute", s.plannedRoute?.json() ?: JSONObject.NULL)
 }

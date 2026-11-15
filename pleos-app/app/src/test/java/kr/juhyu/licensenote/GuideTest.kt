@@ -56,7 +56,7 @@ class GuideTest {
     @Test fun situationExamplesHaveDistinctInstructionsAndAnswerChoices() {
         for (topic in GuideTopic.entries) {
             val original = topic.steps(false)
-            assertEquals(3, original.size)
+            assertEquals(if (topic == GuideTopic.SPEED) 1 else 3, original.size)
             if (topic.examples != null) assertNotEquals(original[1], topic.steps(true)[1])
             val quiz = topic.question ?: continue
             assertFalse(topic.manualSection.isNullOrBlank())

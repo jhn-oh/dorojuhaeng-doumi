@@ -20,6 +20,14 @@ import ai.pleos.playground.tts.listener.EventListener
 import ai.pleos.playground.tts.listener.OnInitializeListener as TtsInit
 import java.util.Locale
 
+/** Write for the ear: keep the screen's short labels, but say their Korean pronunciation. */
+internal fun speechWords(text: String): String = text
+    .replace("MIST", "미스트")
+    .replace("AUTO HOLD", "오토홀드", ignoreCase = true)
+    .replace("EPB", "전자식 주차 브레이크")
+    .replace("P단", "피 단").replace("D단", "디 단").replace("R단", "알 단").replace("N단", "엔 단")
+    .replace("km/h", "킬로미터 퍼 아워").replace("·", ", ")
+
 /** One foreground interaction at a time. A late callback belongs only to its original request. */
 internal class PleosSpeech(private val context: Context, private val status: (String, Boolean) -> Unit) {
     private val main = Handler(Looper.getMainLooper())
@@ -74,7 +82,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
         return id
     }
 
-    fun listen(onFinal: (String) -> Unit) {
+    fun listen(onPartial: (String) -> Unit = {}, onFinal: (String) -> Unit) {
         val id = start(15_000) ?: return
         listening = true
         status("차량 마이크 연결 중", true)
@@ -86,19 +94,20 @@ internal class PleosSpeech(private val context: Context, private val status: (St
                     Log.i("DriveSpeech", "STT listening")
                     status("듣고 있어요", true)
                 }
-                override fun onUpdated(stt: String, completed: Boolean) {
-                    if (completed) event(id) {
+                override fun onUpdated(stt: String, completed: Boolean) = event(id) {
                         val text = stt.trim().take(300)
-                        Log.i("DriveSpeech", "STT final nonempty=${text.isNotEmpty()}")
-                        stop(if (text.isEmpty()) "목소리를 듣지 못했어요." else "")
-                        if (text.isNotEmpty()) onFinal(text)
+                        if (text.isNotEmpty()) onPartial(text)
+                        if (completed) {
+                            Log.i("DriveSpeech", "STT final nonempty=${text.isNotEmpty()}")
+                            stop(if (text.isEmpty()) "목소리를 듣지 못했어요." else "")
+                            if (text.isNotEmpty()) onFinal(text)
+                        } else Log.i("DriveSpeech", "STT partial length=${text.length}")
                     }
-                }
                 override fun onUpdatedEpdData(on: Long, off: Long) = Unit
                 override fun onUpdatedRms(rms: Double) = Unit
                 override fun onEndedRecognition() = event(id) {
                     // The final text may arrive just after the SDK's end-of-speech event.
-                    main.postDelayed({ if (epoch == id) stop("목소리를 듣지 못했어요.") }, 350)
+                    main.postDelayed({ if (epoch == id) stop("목소리를 듣지 못했어요.") }, 800)
                 }
                 override fun onError(errorType: SttError) = event(id) { fail("음성 인식을 사용할 수 없어요.", errorType) }
             }
@@ -120,7 +129,9 @@ internal class PleosSpeech(private val context: Context, private val status: (St
 
     fun speak(text: String, validUntilMs: Long, applicable: () -> Boolean = { true }) {
         if (SystemClock.elapsedRealtime() >= validUntilMs || !applicable()) return
-        val id = start(12_000) ?: return
+        val words = speechWords(text)
+        // Let longer handbook answers finish instead of imposing a fixed 12 s cap.
+        val id = start((3_000L + words.length * 180L).coerceIn(8_000L, 30_000L)) ?: return
         status("음성 안내 준비 중", true)
         runCatching {
             val client = TextToSpeech(context.applicationContext, TtsMode.ON_DEVICE)
@@ -150,7 +161,7 @@ internal class PleosSpeech(private val context: Context, private val status: (St
                     else {
                         client.addEventListener(listener)
                         client.setLocale(Locale.KOREA)
-                        client.speak(text)
+                        client.speak(words)
                     }
                 }
             })

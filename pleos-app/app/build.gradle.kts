@@ -10,8 +10,8 @@ android {
         applicationId = "kr.juhyu.licensenote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.5.3"
+        versionCode = 23
+        versionName = "0.5.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -20,6 +20,15 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
+    buildTypes {
+        getByName("release") { buildConfigField("boolean", "VIDEO_CAPTURE", "false") }
+        getByName("debug") { buildConfigField("boolean", "VIDEO_CAPTURE", "false") }
+        create("showcase") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "VIDEO_CAPTURE", "true")
+        }
+    }
     useLibrary("android.car")
 }
 dependencies {

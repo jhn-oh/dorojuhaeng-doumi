@@ -37,6 +37,15 @@ data class Signal(
 
 internal const val LOCATION_MAX_AGE_MS = 3000L
 
+internal fun observedCourseNavigationState(routeActive: Boolean, guiding: Boolean,
+                                           destinationMatches: Boolean, waypointsMatch: Boolean): String? = when {
+    !routeActive && !guiding -> null
+    guiding && !destinationMatches -> "GUIDING_OTHER_ROUTE"
+    destinationMatches && waypointsMatch -> "ROUTE_READY"
+    guiding && destinationMatches -> "GUIDING_UNCONFIRMED"
+    else -> null
+}
+
 internal fun fusedLocationSignal(location: LocationData?, wallNowMs: Long, elapsedNowMs: Long): Signal {
     val measuredMs = location?.timestampMillis
     val ageMs = measuredMs?.takeIf { it > 0 && it <= wallNowMs }?.let { wallNowMs - it }
@@ -61,6 +70,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     private val fused = FusedLocation(context)
     private val navigation = NaviHelper(context)
     @Volatile private var collectingLocation = false
+    @Volatile private var recording = false
+    private var foregroundLocation = false
+    private var fusedReady = false
     private var navigationStarted = false
     private var navigationConnected = false
     private var navigationListenerAdded = false
@@ -119,6 +131,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             send("navigation_route", "${routeStateInfo.isRouting},${routeStateInfo.naviMode}", "NaviHelper/3.0.5", "CALLBACK")
             send("navigation_route_details", JSONObject().put("termsAgreement", routeStateInfo.termsAgreement).put("isRouting", routeStateInfo.isRouting).put("naviMode", routeStateInfo.naviMode.name).toString(), "NaviHelper/3.0.5", "CALLBACK")
             navigationRouteActive = routeStateInfo.isRouting
+            navigationGuiding = routeStateInfo.naviMode == NaviMode.ROUTE_GUIDING || routeStateInfo.naviMode == NaviMode.SIMULATION_GUIDING
             // The service can return cached SAFE_GUIDING before the native app reports INITIALIZING.
             val readyStatus = lastNavigationStatus == NavigationStatus.FREE_DRIVE || lastNavigationStatus == NavigationStatus.ROUTE_DRIVE
             val noStatusAfterOpening = lastNavigationStatus == null && navigationOpenedAt > 0 && SystemClock.elapsedRealtime() - navigationOpenedAt >= 3000
@@ -156,9 +169,14 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         }
         override fun onRouteCancelled() = onNavigation {
             navigationRequestActive = false
-            waitingCourseNavigation = false
             navigationRouteActive = false
-            send("navigation_request", "CANCELLED", "NaviHelper/3.0.5", "CALLBACK")
+            navigationGuiding = false
+            navigationDestinationMatches = false
+            navigationWaypointsMatch = false
+            send("native_course_tbt", null, "NaviHelper/3.0.5", "CALLBACK")
+            if (!waitingCourseNavigation) send("navigation_request", "CANCELLED", "NaviHelper/3.0.5", "CALLBACK")
+            // The SDK also cancels the old route during replacement. Reconcile the new live route.
+            queryNavigation()
         }
         override fun onWaypointChanged(waypointChangedInfo: WaypointChangedInfo) = onNavigation {
             val route = waypointChangedInfo.routeStartInfo
@@ -185,6 +203,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             navigationRequestActive = false
             waitingCourseNavigation = false
             navigationRouteActive = false
+            navigationGuiding = false
+            navigationCourseRequestGeneration = 0
+            send("native_course_tbt", null, "NaviHelper/3.0.5", "CALLBACK")
             send("navigation_request", "ARRIVED", "NaviHelper/3.0.5", "CALLBACK")
         }
         override fun onDestinationChanged() = onNavigation {
@@ -227,6 +248,10 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         }
         override fun onTBTInfo(tbtInfoList: List<TBTInfo>) = onNavigation {
             send("navigation_tbt", JSONArray().also { array -> tbtInfoList.forEach { array.put(JSONObject().put("type", it.type.name).put("distance", it.distance).put("description", it.description)) } }.toString(), "NaviHelper/3.0.5", "CALLBACK")
+            val current = tbtInfoList.firstOrNull()?.takeIf {
+                navigationCourseRequestGeneration > 0 && navigationGuiding && navigationDestinationMatches
+            }
+            send("native_course_tbt", current?.let { "${requestedCourse.id}|${it.type.name}|${it.distance}|${it.description}" }, "NaviHelper/3.0.5", "CALLBACK")
             val first = tbtInfoList.firstOrNull()?.takeIf {
                 navigationCourseRequestGeneration > 0 && navigationGuiding && navigationRouteActive && navigationDestinationMatches && navigationWaypointsMatch
             }
@@ -235,12 +260,11 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
     }
 
     private fun verifyNavigationRoute() {
-        if (navigationRequestActive && navigationRouteActive && navigationDestinationMatches && navigationWaypointsMatch) {
-            navigationRequestActive = false
-            send("navigation_request", "ROUTE_READY", "NaviHelper/3.0.5 destination and ${requestedCourse.waypoints.size} waypoints confirmed", "CALLBACK")
-        } else if (navigationRequestActive && navigationGuiding && navigationDestinationMatches) {
-            send("navigation_request", "GUIDING_UNCONFIRMED", "NaviHelper/3.0.5 guidance and destination confirmed; route/waypoint response incomplete", "CALLBACK")
-        }
+        if (navigationCourseRequestGeneration == 0L || waitingCourseNavigation) return
+        val state = observedCourseNavigationState(navigationRouteActive, navigationGuiding,
+            navigationDestinationMatches, navigationWaypointsMatch) ?: return
+        if (state == "ROUTE_READY") navigationRequestActive = false
+        send("navigation_request", state, "NaviHelper/3.0.5 observed route, destination and waypoint responses", "CALLBACK")
     }
 
     private fun markNavigationReady() {
@@ -269,6 +293,9 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             if (navigationConnected && now >= nextNavigationQuery) {
                 nextNavigationQuery = now + 5000
                 queryNavigation()
+            } else if (navigationConnected && recording) {
+                runCatching { navigation.getCurrentLocationInfo(); navigation.getTBTInfo() }
+                    .onFailure { fail("navigation_query", Exception(it)) }
             }
             navigationHandler.postDelayed(this, 1000)
         }
@@ -278,7 +305,8 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         runCatching {
             if (fused.isSupported()) {
                 fused.initialize()
-                send("location", null, "FusedLocation/not recording")
+                fusedReady = true
+                updateLocationCollection()
             } else send("location", null, "FusedLocation/unsupported")
         }.onFailure { fail("location", it as? Exception ?: Exception(it)) }
         car = Car.createCar(context, main, Car.CAR_WAIT_TIMEOUT_DO_NOT_WAIT) { connected, ready ->
@@ -416,6 +444,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
         navigationRequestActive = true
         val requestId = ++navigationRequestId
         navigationCourseRequestGeneration = requestId
+        send("native_course_tbt", null, "NaviHelper/3.0.5", "REQUEST")
         navigationWaypointArrivals.clear()
         send("navigation_waypoint_arrivals", JSONObject().put("requestGeneration", requestId)
             .put("events", JSONArray()).toString(), "NaviHelper/3.0.5", "REQUEST")
@@ -424,7 +453,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             val waypoints = requestedCourse.waypoints.mapIndexed { index, point ->
                 val label = requestedCourse.turns.firstOrNull { distanceMeters(it.corner, point) < 1 }?.direction?.label
                     ?: if (requestedCourse.isLanePractice) "차로 변경" else "경유"
-                RequestWaypointInfo(latitude = point.lat, longitude = point.lon, poiName = "$label 검증 지점", waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND, poiId = "", address = "", poiSubId = "")
+                RequestWaypointInfo(latitude = point.lat, longitude = point.lon, poiName = "연습 경유지 ${index + 1}", waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND, poiId = "", address = "", poiSubId = "")
             }
             if (waypoints.isEmpty()) navigation.requestRoute(destination)
             else navigation.requestRouteWithWaypoints(RouteWithWaypointsRequest(destination, waypoints))
@@ -439,13 +468,27 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             }, 40_000)
         }.onFailure { navigationRequestActive = false; fail("navigation_request", Exception(it)) }
     }
-    fun startLocationUpdates() {
+    fun setForegroundLocation(visible: Boolean) {
+        foregroundLocation = visible
+        updateLocationCollection()
+    }
+    fun setRecording(active: Boolean) {
+        recording = active
+        updateLocationCollection()
+    }
+    private fun updateLocationCollection() {
+        if (!fusedReady) return
+        if (foregroundLocation || recording) startLocationUpdates() else stopLocationUpdates()
+    }
+    private fun startLocationUpdates() {
+        if (collectingLocation) return
         collectingLocation = true
         runCatching {
             fused.registerFusedLocationCallback(locationListener)
         }.onFailure { fail("location", Exception(it)) }
     }
-    fun stopLocationUpdates() {
+    private fun stopLocationUpdates() {
+        if (!collectingLocation) return
         collectingLocation = false
         runCatching { fused.unregisterFusedLocationCallback(locationListener) }
         send("location", null, "FusedLocation/not recording")
@@ -457,7 +500,7 @@ class SdkTelemetry(private val context: Context, private val emit: (String, Sign
             vehicleSession = null
             return
         }
-        val session = vehicleSession ?: PleosVehicleSession(Vehicle(context), main, emit, guideVisible) { collectingLocation }.also {
+        val session = vehicleSession ?: PleosVehicleSession(Vehicle(context), main, emit, guideVisible) { recording }.also {
             it.start()
             vehicleSession = it
         }

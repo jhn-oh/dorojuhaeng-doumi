@@ -7,6 +7,8 @@
     <uses-permission android:name="pleos.car.permission.CAR_LIGHTS" />
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
     <uses-permission android:name="pleos.car.permission.CAR_WINDOWS" />
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="pleos.car.permission.READ_WINDSHIELD_WIPERS" />
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
     <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
     <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
@@ -27,7 +29,7 @@
         <package android:name="ai.pleos.playground.service.location.fused" />
         <package android:name="ai.umos.maps.android.navigation.app" />
     </queries>
-    <application android:name=".LicenseApp" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:icon="@android:drawable/ic_menu_agenda" android:label="도로주행 도우미" android:theme="@style/AppTheme" android:supportsRtl="true">
+    <application android:name=".LicenseApp" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:icon="@android:drawable/ic_menu_agenda" android:label="도로주행도우미" android:theme="@style/AppTheme" android:supportsRtl="true">
         <uses-library android:name="android.car" android:required="false" />
         <meta-data android:name="com.hmg.rotary.ROTARY_SUPPORTED" android:value="false" />
         <!-- Keep the Pleos embedded task attached while Compose applies font, theme and split-window changes. -->
