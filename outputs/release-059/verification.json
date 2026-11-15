@@ -1,0 +1,54 @@
+{
+  "version": "0.5.9",
+  "versionCode": 25,
+  "checkedAtUtc": "2026-11-15T13:45:01.8922080Z",
+  "apkPath": "apk/오주현_도로주행도우미_release.apk",
+  "sha256": "f7cf557e2eb93b285d5fd6f814747b70f8f14cf28bafe61fb4b026fa5f7c7405",
+  "certificateSha256": "a16b03ac9f1f10a76b16dc0a2a0c5c44b3018f3a7c891468a2b7b3169b32c882",
+  "sameSignerAs058": true,
+  "installedHashMatches": true,
+  "build": {
+    "release": true,
+    "tests": 103,
+    "failures": 0,
+    "lintErrors": 0,
+    "lintWarnings": 7
+  },
+  "regression": {
+    "previouslyFailingTests": 4,
+    "currentlyFailingTests": 0,
+    "scope": "Signal names and phrasing, requested direction versus stalk location, cancellation, unsupported questions and existing topics"
+  },
+  "runtime": {
+    "version": "0.5.9",
+    "input": "왼쪽 방향지시등은 어떻게 켜요?",
+    "scope": "Signed release on a fresh stock Pleos emulator; synthetic Korean question via virtual microphone, no physical microphone",
+    "installedSha256": "f7cf557e2eb93b285d5fd6f814747b70f8f14cf28bafe61fb4b026fa5f7c7405",
+    "installedHashMatches": true,
+    "questionSha256": "7a9484fdba75c82e9960ea6ce07b7f38c2bf15956b95f0d071ea720d2e88f6a2",
+    "initialInterruption": "RuntimeError('INSTRUMENTATION_RESULT: error=java.lang.IllegalStateException: App accessibility window not found\\nINSTRUMENTATION_RESULT: windowInventory=display=0 focused=false active=false bounds=[0,1300][2560,1440] package=com.android.systemui | display=0 focused=false active=false bounds=[0,0][853,1300] package=ai.umos.drivingview | display=0 focused=false active=false bounds=[0,0][2560,90] package=com.android.systemui | display=0 focused=false active=false bounds=[0,0][2560,1300] package=ai.umos.homescreen | display=0 focused=true active=true bounds=[853,90][2535,1300] package=ai.umos.maps.android.navigation.app\\nINSTRUMENTATION_CODE: 1')",
+    "recovery": "Reopened existing app after built-in navigation foregrounded; no app state or answer injection",
+    "sttAndTtsCompleted": true,
+    "visibleTexts": [
+      "음성 질문",
+      "왼쪽 방향지시등은 어떻게 켜요",
+      "왼쪽 깜빡이를 켜려면 핸들 왼쪽 레버를 아래로 내리세요. 계기판의 왼쪽 화살표가 깜빡이는지 확인하세요. 쏘나타 설명서의 레버식 조작 기준이에요.",
+      "닫기",
+      "다시 말하기"
+    ],
+    "recognizedLeftSignalQuestion": true,
+    "correctLeftStalkAnswer": true,
+    "recognitionLimitation": "An earlier synthetic utterance using 깜빡이 was recognized as 반파기 and received the unmatched response. The successful run uses 방향지시등; this is not a recognition-rate measurement.",
+    "speakerCaptureExitCode": 0
+  },
+  "answerSource": "https://ownersmanual.hyundai.com/full_webhelp/DN8/2026/ko_KR/ideb4a90bce9f.html",
+  "evidence": [
+    "left-signal-answer.png"
+  ],
+  "limits": [
+    "Only the local answer-selection logic changed; Pleos ON_DEVICE STT engine is unchanged",
+    "The colloquial synthetic word 깜빡이 was misrecognized as 반파기; the successful synthetic run used 방향지시등",
+    "No recognition-rate or physical-cabin validation",
+    "Built-in navigation foregrounded once; reopened the existing app to continue the UI test"
+  ]
+}

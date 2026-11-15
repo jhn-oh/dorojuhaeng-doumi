@@ -6,7 +6,7 @@ import kotlin.math.sqrt
 
 internal data class HandbookAnswer(val topic: GuideTopic, val text: String)
 
-/** A local nearest-neighbour intent classifier. Character pairs tolerate Korean particles and spacing. */
+/** Explicit control operations take priority over the character-pair fallback for handbook topics. */
 internal object GuideAnswers {
     private data class Entry(val topic: GuideTopic, val phrases: String, val answer: String)
     private val entries = listOf(
@@ -38,6 +38,30 @@ internal object GuideAnswers {
             "오토홀드의 흰색은 대기, 초록색은 정차 유지 표시예요. 주차할 때는 P단과 주차 브레이크를 확인하세요.")
     )
     private fun normalize(text: String) = text.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+    private val signalNames = listOf("깜빡이", "깜박이", "깜빡등", "깜박등", "방향지시등", "방향등", "턴시그널")
+
+    private fun signalAnswer(words: String): String? {
+        // A named control must not drift into another topic or answer a different operation.
+        if (entries.any { it.topic != GuideTopic.SIGNAL && normalize(it.phrases.substringBefore('|')) in words }) return null
+        if (listOf("왜", "언제", "몇", "색", "원리", "뜻").any { it in words }) return null
+        val cancel = listOf("끄", "꺼", "취소", "해제").any { it in words }
+        val location = listOf("어디", "위치", "어느쪽").any { it in words }
+        if (!cancel && !location && signalNames.none { it == words } &&
+            listOf("켜", "키는", "키려", "키나", "어떻게", "방법", "작동", "사용", "조작").none { it in words }) return null
+        // The left-hand stalk can operate the right signal; its location is not the requested direction.
+        val direction = words.replace("핸들왼쪽", "").replace("운전대왼쪽", "")
+        val left = listOf("왼쪽", "좌측", "좌회전").any { it in direction }
+        val right = listOf("오른쪽", "우측", "우회전").any { it in direction }
+        val side = if (left != right) if (left) "왼쪽" else "오른쪽" else "해당 방향"
+        // https://ownersmanual.hyundai.com/full_webhelp/DN8/2026/ko_KR/ideb4a90bce9f.html
+        val instruction = when {
+            cancel -> "깜빡이를 끄려면 핸들 왼쪽 레버를 가운데 위치로 돌려 놓으세요. 계기판의 $side 화살표가 꺼졌는지 확인하세요."
+            left != right -> "$side 깜빡이를 켜려면 핸들 왼쪽 레버를 ${if (left) "아래로 내리세요" else "위로 올리세요"}. 계기판의 $side 화살표가 깜빡이는지 확인하세요."
+            location -> "깜빡이 레버는 핸들 왼쪽에 있어요. 왼쪽 신호는 레버를 아래로, 오른쪽 신호는 위로 움직이세요."
+            else -> "핸들 왼쪽 레버를 아래로 내리면 왼쪽, 위로 올리면 오른쪽 깜빡이가 켜져요. 계기판의 해당 방향 화살표를 확인하세요."
+        }
+        return "$instruction 쏘나타 설명서의 레버식 조작 기준이에요."
+    }
     private fun features(text: String) = normalize(text).windowed(2).toSet()
     private val examples = entries.flatMap { entry -> entry.phrases.split('|').map { features(it) to entry } }
     private val weights = examples.flatMap { it.first }.groupingBy { it }.eachCount()
@@ -48,7 +72,9 @@ internal object GuideAnswers {
         val words = normalize(question)
         if (listOf("지금가", "지금들어", "지금바꿔", "지금변경", "지금돌", "가도돼", "해도돼", "해도되", "괜찮",
                 "긴급", "사고", "고장", "급발진", "불이났", "연기가", "안돼", "안되", "안들", "안먹", "안멈", "멈추지",
+                "안꺼", "안켜", "켜지지", "꺼지지", "작동하지", "끼어들어도",
                 "수리", "비용", "가격", "견적", "구매", "교체").any { it in words }) return null
+        if (signalNames.any { it in words }) return signalAnswer(words)?.let { HandbookAnswer(GuideTopic.SIGNAL, it) }
         val query = features(question.take(300))
         if (query.isEmpty()) return null
         fun squaredWeight(term: String): Double = (weights[term] ?: 3.0).let { it * it }
@@ -61,15 +87,6 @@ internal object GuideAnswers {
         val (best, score) = ranked.first()
         if (score < 0.37 || score - ranked[1].second < 0.11) return null
         if (best.topic == GuideTopic.PARKING_BRAKE && listOf("주차", "파킹", "epb").none { it in words }) return null
-        val answer = if (best.topic == GuideTopic.SIGNAL) {
-            val left = listOf("왼쪽", "좌측", "좌회전").any { it in words }
-            val right = listOf("오른쪽", "우측", "우회전").any { it in words }
-            if (left != right) {
-                val side = if (left) "왼쪽" else "오른쪽"
-                val action = if (left) "아래로 내리세요" else "위로 올리세요"
-                "설명서 기준으로 방향지시등 레버는 핸들 왼쪽에 있어요. $side 깜빡이는 레버를 $action. 계기판의 $side 화살표가 깜빡이는지 확인하세요. 차종에 따라 조작 방법은 다를 수 있어요."
-            } else best.answer
-        } else best.answer
-        return HandbookAnswer(best.topic, answer)
+        return HandbookAnswer(best.topic, best.answer)
     }
 }

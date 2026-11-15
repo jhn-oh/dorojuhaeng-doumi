@@ -32,6 +32,10 @@
 !/outputs/release-058/notebook-restored.png
 !/outputs/release-058/next-practice-goals.png
 !/outputs/release-058/driving-with-goal.png
+!/outputs/release-059/
+/outputs/release-059/*
+!/outputs/release-059/verification.json
+!/outputs/release-059/left-signal-answer.png
 !/outputs/course-routing-20261114/
 /outputs/course-routing-20261114/*
 !/outputs/course-routing-20261114/검증.md

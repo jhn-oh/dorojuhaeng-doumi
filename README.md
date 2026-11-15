@@ -2,7 +2,7 @@
 
 초보 운전자가 Pleos Connect에서 출발 준비, 내 차 조작 실습, 연습 코스와 주차 후 복습을 연결하는 차량용 Android 앱입니다.
 
-**개인 출품: 오주현 · 최종 release 0.5.8 (versionCode 24)**
+**개인 출품: 오주현 · 최종 release 0.5.9 (versionCode 25)**
 
 ## 주요 화면
 
@@ -12,7 +12,7 @@
 
 **[주요 화면 12개와 차량 전체 화면 원본 보기](docs/screenshots/README.md)** · [요약 이미지](docs/screenshots/overview.png)
 
-Pleos 에뮬레이터에서 실행한 release 0.5.7·0.5.8의 실제 캡처입니다. 각 화면의 버전과 시험 조건은 갤러리에 표시했습니다.
+Pleos 에뮬레이터에서 실행한 release 0.5.7~0.5.9의 실제 캡처입니다. 각 화면의 버전과 시험 조건은 갤러리에 표시했습니다.
 
 ## 최종 APK
 
@@ -20,8 +20,16 @@ Pleos 에뮬레이터에서 실행한 release 0.5.7·0.5.8의 실제 캡처입�
 
 - 제출 파일 경로: `apk/오주현_도로주행도우미_release.apk` — 저장소 최상위의 `apk/` 폴더입니다.
 - 패키지: `kr.juhyu.licensenote` · minSdk 28 · targetSdk 35 · release 서명 APK.
-- APK SHA-256: `7ec45905976a889e7037b051023f44f6d89145246d0e186ad7df942aa58bba69`
-- [수정본 검증 기록](outputs/release-058/verification.json) · [공식 제출 요구사항 확인](outputs/release-057/submission-requirements.json)
+- APK SHA-256: `f7cf557e2eb93b285d5fd6f814747b70f8f14cf28bafe61fb4b026fa5f7c7405`
+- [수정본 검증 기록](outputs/release-059/verification.json) · [공식 제출 요구사항 확인](outputs/release-057/submission-requirements.json)
+
+## 0.5.9 질문에 맞는 방향지시등 답변
+
+- 왼쪽·오른쪽 방향과 켜기·끄기를 구분합니다. ‘깜박등’, ‘방향 지시등’, ‘턴 시그널’처럼 표현을 바꾼 조작 질문도 처리합니다.
+- **“왼쪽 깜빡이를 어떻게 켜요?” → “왼쪽 깜빡이를 켜려면 핸들 왼쪽 레버를 아래로 내리세요. 계기판의 왼쪽 화살표가 깜빡이는지 확인하세요.”** [쏘나타 설명서의 레버식 조작 기준](https://ownersmanual.hyundai.com/full_webhelp/DN8/2026/ko_KR/ideb4a90bce9f.html)입니다.
+- 끄는 질문에는 레버를 가운데 위치로 돌려 놓고 화살표가 꺼졌는지 확인하도록 안내합니다. ‘핸들 왼쪽 레버’라는 위치 설명을 오른쪽 신호 요청과 혼동하지 않습니다.
+- release 단위 검사 103개와 lint 오류 0개를 확인했습니다. 실제 서명 APK에서 합성 음성 **“왼쪽 방향지시등은 어떻게 켜요?”**의 인식·화면 답변·TTS 완료를 확인했습니다. [실제 앱 문답 화면](outputs/release-059/left-signal-answer.png)
+- 음성 엔진은 기존 Pleos `ON_DEVICE`입니다. 별도 합성 질문에서 ‘깜빡이’를 ‘반파기’로 잘못 들은 사례는 남아 있으며, 이번 수정이 인식률 개선이나 실차 음성 검증을 의미하지 않습니다.
 
 ## 실행 환경과 설정
 
