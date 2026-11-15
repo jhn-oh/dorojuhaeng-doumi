@@ -4,6 +4,16 @@
 
 **개인 출품: 오주현 · 최종 release 0.5.8 (versionCode 24)**
 
+## 주요 화면
+
+출발 점검 → 내 차 익히기 → 코스 선택 → 주행·음성 질문 → 점수·오답 복습으로 이어집니다.
+
+[![도로주행도우미 주요 화면 요약](docs/screenshots/overview.png)](docs/screenshots/README.md)
+
+**[주요 화면 12개와 차량 전체 화면 원본 보기](docs/screenshots/README.md)** · [요약 이미지](docs/screenshots/overview.png)
+
+Pleos 에뮬레이터에서 실행한 release 0.5.7·0.5.8의 실제 캡처입니다. 각 화면의 버전과 시험 조건은 갤러리에 표시했습니다.
+
 ## 최종 APK
 
 **[오주현_도로주행도우미_release.apk 다운로드](apk/오주현_도로주행도우미_release.apk)**
