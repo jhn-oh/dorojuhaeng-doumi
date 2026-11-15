@@ -268,7 +268,7 @@ class TurnPracticeTest {
 
     @Test fun gpsLanePassageDescribesSignalsWithoutAssessingALaneChange() {
         val route = CourseCatalog.lane
-        val e = PracticeEngine(PracticeSession(courseId = route.id, rulesVersion = route.rulesVersion, startedAtMs = 1000,
+        val e = PracticeEngine(PracticeSession(courseId = route.id, rulesVersion = VEHICLE_REVIEW_RULES, startedAtMs = 1000,
             startedWallMs = 1, expectedDoors = emptyList()))
         var now = 1000L
         for ((a, b) in route.points.zipWithNext()) {

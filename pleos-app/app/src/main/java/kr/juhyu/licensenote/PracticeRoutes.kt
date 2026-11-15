@@ -18,7 +18,7 @@ data class PracticeRoute(
     val routingSource: String = "",
 ) {
     val version = 1
-    val rulesVersion = VEHICLE_REVIEW_RULES
+    val rulesVersion = PRACTICE_SCORE_RULES
     val isLanePractice get() = id == LegacyLaneCourse.id
     val finish get() = origin ?: points.last()
     val minutes = ceil((routingSeconds ?: (distance / (15_000.0 / 3600) + 20 * waypoints.size)) / 60).toInt()

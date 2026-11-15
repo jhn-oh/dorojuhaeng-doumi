@@ -34,6 +34,7 @@ internal fun parkedInstruction(ui: PracticeUi, signals: Map<String, Signal>): St
     Page.RESULT -> ui.assessment?.let { assessment ->
         when {
             ui.session?.vehicleReview != true -> null
+            (ui.session?.rulesVersion ?: 0) >= PRACTICE_SCORE_RULES -> assessment.score?.let { "이번 종합 연습 점수는 ${it}점이에요. 오답노트에서 복습할 내용을 확인하세요." } ?: "평가 자료가 부족해 점수는 보류했어요. 기록을 확인하세요."
             assessment.status == "HELD" -> assessment.reason.substringBefore('\n')
             assessment.practiceSuggested -> "깜빡이가 계속 꺼져 있던 구간이 있어요. 다시 연습할 구간을 확인해 보세요."
             assessment.status == "VEHICLE_RECORDED" -> "연습을 마쳤어요. 구간별 깜빡이 기록을 확인해 보세요."

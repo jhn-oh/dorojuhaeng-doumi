@@ -1,0 +1,52 @@
+{
+  "version": "0.5.8",
+  "versionCode": 24,
+  "checkedAtUtc": "2026-11-15T13:07:13.570242+00:00",
+  "apkPath": "apk/오주현_도로주행도우미_release.apk",
+  "sha256": "7ec45905976a889e7037b051023f44f6d89145246d0e186ad7df942aa58bba69",
+  "certificateSha256": "a16b03ac9f1f10a76b16dc0a2a0c5c44b3018f3a7c891468a2b7b3169b32c882",
+  "fileIntegrityAndSignature": true,
+  "installedHashMatches": true,
+  "releaseNotDebuggable": true,
+  "noShowcaseReceiver": true,
+  "environment": "Fresh Pleos Connect 2.1.0 / Android 14 API34 x86_64 / Emulator 36.6.11 / 2560x1440",
+  "tests": 99,
+  "failures": 0,
+  "lintErrors": 0,
+  "lintWarnings": 7,
+  "runtime": {
+    "version": "0.5.8",
+    "scope": "Signed release on stock Pleos; synthetic GNSS and public virtual vehicle controls",
+    "score60FromTwoObservedFindings": true,
+    "automaticNotebook": true,
+    "scoreAndNotesRestoredAfterRestart": true,
+    "nextCourseShowsPreviousMistakeGoals": true,
+    "nextDrivingSessionCarriesGoal": true,
+    "nativeNavigationForegroundInterruption": "Built-in navigation foregrounded during the test; reopened the existing app to continue. No app signal or result injection.",
+    "stationarySessionNotGiven100": true
+  },
+  "qrIndependentlyDecoded": true,
+  "defenderNoThreatDetected": true,
+  "appCrashOrAnrObserved": false,
+  "scoreRulesVersion": 6,
+  "previousRulesRetained": true,
+  "criteria": {
+    "beltOrDoor": 20,
+    "estimatedTurnSignalOmission": 10,
+    "accelerationOrBraking": 5,
+    "observationCoverage": "At least 5 moving observations, 10 seconds, 2 evaluated categories and continuous valid speed coverage; unavailable categories shown separately"
+  },
+  "evidence": [
+    "score-result.png",
+    "notebook-restored.png",
+    "next-practice-goals.png",
+    "driving-with-goal.png"
+  ],
+  "limits": [
+    "Emulator vehicle inputs and GNSS are synthetic; no physical-car validation",
+    "Score is a versioned prototype practice metric, not an official test score or validated safety rating",
+    "Turn detection requires movement, heading change and matching steering; unavailable evidence is unassessed",
+    "Next-practice goals are carried to the course picker and driving screen; route geometry is not optimized to add more of a particular maneuver",
+    "Abrupt braking may have a valid cause; observation asks for parked review"
+  ]
+}

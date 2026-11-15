@@ -321,6 +321,7 @@ internal val LocalAppTextScale = staticCompositionLocalOf { 1f }
         Copy(instruction.title, if (wide) 58 else 47, p.ink, FontWeight.SemiBold, TextAlign.Center, style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading))
     }
     val tools: @Composable () -> Unit = {
+        if (s.reviewGoals.isNotEmpty()) Copy("이번 연습 목표 · " + s.reviewGoals.first(), 22, p.blue)
         DriveMotionMeter(signals["speed"])
         val mode = signals["drive_mode"]?.takeIf { it.fresh(ui.now, 3500) }?.value
         val label = when (mode) { "NORMAL" -> "일반"; "ECO" -> "에코"; "SPORT" -> "스포츠"; else -> null }
@@ -462,6 +463,7 @@ private fun archivedAnswer(answer: Observation): String = when (answer) {
 
 /** New sessions open straight to the captured signals. The details page carries the longer evidence. */
 @Composable private fun VehicleResultScreen(s: PracticeSession, a: Assessment, wide: Boolean, saving: Boolean, c: PracticeCoordinator) {
+    if (s.rulesVersion >= PRACTICE_SCORE_RULES) { PracticeReviewScreen(s, wide, saving, c); return }
     val p = LocalPalette.current
     val results = remember(s) { PracticeEvaluator.turnAssessments(s) }
     val comparisons = remember(s) { practiceTargetOutcomes(s).associateBy { it.courseTurnId } }
@@ -533,7 +535,7 @@ private fun turnSummary(result: TurnAssessment?, session: PracticeSession?): Str
         else -> result.reason
     }
 }
-@Composable private fun EvidenceCard(label: String, body: String) {
+@Composable internal fun EvidenceCard(label: String, body: String) {
     val p = LocalPalette.current
     Column(Modifier.fillMaxWidth().background(p.light, RoundedCornerShape(27.dp)).padding(30.dp)) { Copy(label, 28, p.blue, FontWeight.Medium); Spacer(Modifier.height(24.dp)); Copy(body, 32) }
 }
@@ -593,6 +595,7 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
 }
 
 @Composable private fun VehicleNotebook(s: PracticeSession, wide: Boolean, saving: Boolean, c: PracticeCoordinator) {
+    if (s.rulesVersion >= PRACTICE_SCORE_RULES) { PracticeReviewScreen(s, wide, saving, c, notebook = true); return }
     val p = LocalPalette.current
     val results = remember(s) { PracticeEvaluator.turnAssessments(s) }
     val a = remember(s) { PracticeEvaluator.evaluate(s) }
@@ -626,7 +629,7 @@ private fun repeatPracticeLabel(results: List<TurnAssessment>): String? {
         }
     }
 }
-@Composable private fun PreviousPracticeList(currentId: String, coordinator: PracticeCoordinator) {
+@Composable internal fun PreviousPracticeList(currentId: String, coordinator: PracticeCoordinator) {
     var open by remember(currentId) { mutableStateOf(false) }
     var offset by remember(currentId) { mutableIntStateOf(0) }
     var page by remember(currentId) { mutableStateOf<List<PreviousPractice>?>(null) }

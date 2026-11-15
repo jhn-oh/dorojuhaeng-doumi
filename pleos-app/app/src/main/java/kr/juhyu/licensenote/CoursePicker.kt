@@ -21,6 +21,8 @@ internal fun CoursePicker(ui: PracticeUi, wide: Boolean, c: PracticeCoordinator)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Copy("현재 위치에서 한 바퀴", if (wide) 74 else 58, weight = FontWeight.SemiBold)
         Copy("내 주변 도로를 달리고, 지금 출발하는 곳으로 돌아와요.", if (wide) 36 else 30, p.second)
+        val goals = remember(ui.session) { ui.session?.takeIf { it.rulesVersion >= PRACTICE_SCORE_RULES }?.let { practiceReview(it).goals }.orEmpty() }
+        if (goals.isNotEmpty()) EvidenceCard("지난 오답을 반영한 이번 연습 목표", goals.joinToString("\n"))
         if (ui.routeLoading) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Copy(ui.routeMessage ?: "주변 도로를 찾고 있어요.", 30, p.blue)

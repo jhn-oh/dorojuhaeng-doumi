@@ -12,6 +12,16 @@ internal fun reportText(s: PracticeSession): String {
     val assessment = PracticeEvaluator.evaluate(s)
     val score = assessment.score
     val duration = s.endedAtMs?.let { ((it - s.startedAtMs).coerceAtLeast(0) / 1000) }
+    if (s.rulesVersion >= PRACTICE_SCORE_RULES) {
+        val review = practiceReview(s)
+        return buildString {
+            appendLine("도로주행도우미 · ${s.practiceRoute.name}")
+            appendLine(review.score?.let { "종합 연습 점수 ${it}점 / 100" } ?: "점수 보류 · 주행 자료 부족")
+            appendLine("확인 ${review.checked.size}/4 · 앱 자체 지표, 공식 시험 점수가 아니에요.")
+            review.findings.take(4).forEach { appendLine("${it.title} · −${it.penalty}점") }
+            review.goals.take(2).forEach { appendLine("다음 목표 · $it") }
+        }.trim()
+    }
     return buildString {
         appendLine("도로주행도우미 · " + s.practiceRoute.name)
         if (duration != null) appendLine("연습 시간 " + duration / 60 + "분 " + duration % 60 + "초")

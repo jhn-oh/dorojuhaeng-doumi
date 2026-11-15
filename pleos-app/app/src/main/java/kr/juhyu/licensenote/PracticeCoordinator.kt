@@ -389,7 +389,8 @@ class PracticeCoordinator(private val context: Context, private val signals: () 
         val statuses = previousTurns.filter { it.event.id.substringAfterLast(':') in targets }.associate { it.event.id.substringAfterLast(':') to it.status }
         engine = PracticeEngine(PracticeSession(courseId = route.id, courseVersion = route.version, rulesVersion = route.rulesVersion, startedAtMs = now, startedWallMs = System.currentTimeMillis(), manualDoor = state.value.manualDoor, manualBelt = state.value.manualBelt, expectedDoors = doors, dataGap = !turnReady,
             evidenceGaps = if (turnReady) emptyList() else listOf(EvidenceGap(now, now)),
-            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active, plannedRoute = state.value.plannedRoute))
+            practiceTargets = targets, previousSessionId = if (targets.isNotEmpty()) previous?.id else null, previousTargetStatuses = statuses, nativeDestination = active, plannedRoute = state.value.plannedRoute,
+            reviewGoals = previous?.takeIf { it.rulesVersion >= PRACTICE_SCORE_RULES }?.let { practiceReview(it).goals }.orEmpty()))
         engine!!.tick(data, now)
         try {
             ContextCompat.startForegroundService(context, Intent(context, TelemetryService::class.java).setAction("RECORD").putExtra("prepareCourseRoute", active == null).putExtra("courseId", route.id).putExtra("plannedRoute", state.value.plannedRoute?.json()?.toString()))

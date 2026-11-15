@@ -55,6 +55,11 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
         return rows.map { data ->
             val session = decode(data)
             val assessment = PracticeEvaluator.evaluate(session)
+            if (session.rulesVersion >= PRACTICE_SCORE_RULES) {
+                val review = practiceReview(session)
+                return@map PreviousPractice(session.practiceRoute.name, session.startedWallMs,
+                    listOf(review.score?.let { "종합 연습 점수 ${it}점" } ?: "평가 자료 부족") + review.findings.map { it.title + " · " + it.detail })
+            }
             val turns = if (session.rulesVersion >= 2) PracticeEvaluator.turnAssessments(session).filter { session.vehicleReview || it.mistake } else emptyList()
             val notes = if (turns.isEmpty()) listOf(assessment.reason) else (if (session.vehicleReview) listOf(assessment.reason) else emptyList()) + turns.map {
                 practiceTargetLabel(it.event.id.substringAfterLast(':'), session.practiceRoute) + " · " + it.reason
@@ -106,10 +111,18 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "practice.db", 
             previousTargetStatuses = data.optJSONObject("previousTargetStatuses")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } } ?: emptyMap(),
             nativeDestination = data.optJSONObject("nativeDestination")?.let(NativeDestination::parse),
             plannedRoute = plannedRoute,
+            reviewGoals = data.optJSONArray("reviewGoals")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
         )
     }
     fun metadata(s: PracticeSession): JSONObject = JSONObject().put("schemaVersion", 1).put("id", s.id).put("courseId", s.courseId).put("courseVersion", s.courseVersion).put("rulesVersion", s.rulesVersion)
         .apply { if (s.vehicleReview) put("reviewSource", "VEHICLE_SIGNALS") }
+        .put("reviewGoals", JSONArray(s.reviewGoals))
+        .apply { if (s.rulesVersion >= PRACTICE_SCORE_RULES && s.endedAtMs != null) {
+            val review = practiceReview(s)
+            put("practiceReview", JSONObject().put("score",review.score ?: JSONObject.NULL).put("checked",JSONArray(review.checked))
+                .put("unassessed",JSONArray(review.unassessed)).put("mistakes",JSONArray(review.findings.map { f -> JSONObject()
+                    .put("key",f.key).put("title",f.title).put("detail",f.detail).put("atMs",f.atMs).put("penalty",f.penalty).put("goal",f.goal) })))
+        } }
         .put("startedAtMs", s.startedAtMs).put("startedWallMs", s.startedWallMs).put("endedAtMs", s.endedAtMs ?: JSONObject.NULL).put("phase", s.phase.name)
         .put("manualDoor", s.manualDoor).put("manualBelt", s.manualBelt).put("expectedDoors", JSONArray(s.expectedDoors)).put("sampleCount", s.samples.size)
         .put("passage", s.passage?.let { JSONObject().put("id", it.id).put("entryMs", it.entryMs).put("exitMs", it.exitMs ?: JSONObject.NULL) } ?: JSONObject.NULL)

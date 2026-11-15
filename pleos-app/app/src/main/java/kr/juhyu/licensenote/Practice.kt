@@ -72,6 +72,7 @@ data class PracticeSession(
     val previousTargetStatuses: Map<String, String> = emptyMap(),
     val nativeDestination: NativeDestination? = null,
     val plannedRoute: PracticeRoute? = null,
+    val reviewGoals: List<String> = emptyList(),
 )
 internal const val VEHICLE_REVIEW_RULES = 5
 val PracticeSession.vehicleReview get() = rulesVersion >= VEHICLE_REVIEW_RULES
@@ -391,6 +392,12 @@ object PracticeEvaluator {
     }
 
     private fun evaluateVehicleReview(s: PracticeSession): Assessment {
+        if (s.rulesVersion >= PRACTICE_SCORE_RULES) {
+            val review = practiceReview(s)
+            return Assessment(if (review.score == null) "HELD" else "PRACTICE_SCORED", review.score,
+                review.checked.size, review.findings.isNotEmpty(), review.score?.let { "${it}점" } ?: "평가 자료가 부족해요",
+                review.explanation, review.findings.isNotEmpty())
+        }
         if (s.interrupted || s.safetyIssue) return Assessment("HELD", null, 0, false, "여기까지의 차량 기록",
             if (s.interrupted) "중단 전까지 받은 신호를 저장했어요." else "안전 문제로 구간 판단을 보류했어요.")
         val end = s.endedAtMs ?: return Assessment("RECORDING", null, 0, false, "차량 기록 중", "주차 후 기록을 마치면 구간별로 볼 수 있어요.")
